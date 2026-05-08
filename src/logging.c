@@ -160,9 +160,13 @@ static int json_escape_into(char *out, size_t out_sz, const char *in) {
 
 static void random_uuid(char out[37]) {
 #ifdef ESP_PLATFORM
+    // Xtensa GCC: uint32_t == `long unsigned int` so %x triggers -Werror=format=.
+    // Cast to unsigned long + use %lx so format and arg width agree across hosts.
     uint32_t r[4] = {esp_random(), esp_random(), esp_random(), esp_random()};
-    snprintf(out, 37, "%08x-%04x-4%03x-%04x-%08x%04x", r[0], r[1] & 0xFFFF, r[2] & 0x0FFF,
-             (r[2] >> 16) & 0x3FFF | 0x8000, r[3], r[1] >> 16);
+    snprintf(out, 37, "%08lx-%04lx-4%03lx-%04lx-%08lx%04lx", (unsigned long)r[0],
+             (unsigned long)(r[1] & 0xFFFF), (unsigned long)(r[2] & 0x0FFF),
+             (unsigned long)(((r[2] >> 16) & 0x3FFF) | 0x8000), (unsigned long)r[3],
+             (unsigned long)(r[1] >> 16));
 #else
     snprintf(out, 37, "%08x-%04x-%04x-%04x-%012x", rand(), rand() & 0xFFFF, rand() & 0xFFFF,
              rand() & 0xFFFF, rand());
