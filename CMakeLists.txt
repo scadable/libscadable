@@ -9,13 +9,22 @@ idf_component_register(
         "src/logging.c"
         "src/env.c"
         "src/diagnostics.c"
+        "src/ota.c"
     INCLUDE_DIRS
         "include"
+    PRIV_INCLUDE_DIRS
+        "src"
     REQUIRES
         mqtt
         nvs_flash
         esp_http_client
         esp_https_ota
         esp_wifi
+        esp_event
+        esp_netif
+        esp_timer
+        esp_partition
+        esp-tls
+        app_update
         mbedtls
 )
