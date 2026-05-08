@@ -28,7 +28,7 @@
 // the SCADABLE_NO_GENERATED macro disables the include and you get raw
 // uint32_t IDs instead of typed enums.
 #ifndef SCADABLE_NO_GENERATED
-#  include "scadable_generated.h"
+#    include "scadable_generated.h"
 #else
 typedef uint32_t scadable_channel_t;
 typedef uint32_t scadable_metric_t;
@@ -41,19 +41,28 @@ extern "C" {
 
 // ─── Error codes (errno-style; SCADABLE_OK == 0) ────────────────
 typedef enum {
-    SCADABLE_OK                  =  0,
+    SCADABLE_OK                  = 0,
     SCADABLE_ERR_NOT_INITIALIZED = -1,
     SCADABLE_ERR_NOT_CONNECTED   = -2,
     SCADABLE_ERR_INVALID_ARG     = -3,
-    SCADABLE_ERR_BACKPRESSURE    = -4,   // outbound queue full; retry after EVT_PUBLISHED
+    SCADABLE_ERR_BACKPRESSURE    = -4,  // outbound queue full; retry after EVT_PUBLISHED
     SCADABLE_ERR_TIMEOUT         = -5,
     SCADABLE_ERR_NO_CERT         = -6,
     SCADABLE_ERR_TLS             = -7,
     SCADABLE_ERR_NETWORK         = -8,
-    SCADABLE_ERR_TEST_FAILED     = -9,   // returned from diagnostic handlers
+    SCADABLE_ERR_TEST_FAILED     = -9,  // returned from diagnostic handlers
     SCADABLE_ERR_INTERNAL        = -100,
 } scadable_err_t;
 
+/**
+ * Translate an scadable_err_t into a human-readable string. The pointer is
+ * static — never free. Always returns a non-NULL string, including for
+ * unknown error codes (returns "unknown error").
+ *
+ * Use in log messages:
+ *   if ((err = scadable_init(NULL)) != SCADABLE_OK)
+ *       ESP_LOGE(TAG, "init failed: %s", scadable_strerror(err));
+ */
 const char *scadable_strerror(scadable_err_t err);
 
 // ─── Connection state ───────────────────────────────────────────
@@ -70,26 +79,35 @@ typedef enum {
 typedef enum {
     SCADABLE_EVT_CONNECTED,
     SCADABLE_EVT_DISCONNECTED,
-    SCADABLE_EVT_PUBLISHED,         // QoS1 PUBACK landed
+    SCADABLE_EVT_PUBLISHED,  // QoS1 PUBACK landed
     SCADABLE_EVT_ERROR,
-    SCADABLE_EVT_OTA_AVAILABLE,     // new firmware ready; library handles apply automatically
-    SCADABLE_EVT_ENV_CHANGED,       // env var or secret value updated by cloud
+    SCADABLE_EVT_OTA_AVAILABLE,  // new firmware ready; library handles apply automatically
+    SCADABLE_EVT_ENV_CHANGED,    // env var or secret value updated by cloud
 } scadable_event_type_t;
 
 typedef struct {
     scadable_event_type_t type;
     union {
-        struct { uint32_t recovered_count; }                              connected;
-        struct { int32_t  msg_id; }                                       published;
+        struct {
+            uint32_t recovered_count;
+        } connected;
+        struct {
+            int32_t msg_id;
+        } published;
         struct {
             scadable_err_t code;
-            int32_t  esp_tls_err;
-            int32_t  mbedtls_err;
+            int32_t esp_tls_err;
+            int32_t mbedtls_err;
             uint32_t cert_verify_flags;
-            bool     retriable;
-        }                                                                 error;
-        struct { const char *new_version; }                               ota_available;
-        struct { const char *key; const char *new_value; }                env_changed;
+            bool retriable;
+        } error;
+        struct {
+            const char *new_version;
+        } ota_available;
+        struct {
+            const char *key;
+            const char *new_value;
+        } env_changed;
     };
 } scadable_event_t;
 
@@ -98,9 +116,9 @@ typedef void (*scadable_event_cb_t)(scadable_event_t event, void *user);
 // ─── Optional runtime overrides (NULL = use baked-in from config.toml) ───
 typedef struct {
     const char *broker_url;
-    const char *device_id;        // default = MAC-derived
-    uint16_t    keepalive_secs;   // default 30
-    uint16_t    log_batch_secs;   // default 5; 0 = realtime
+    const char *device_id;    // default = MAC-derived
+    uint16_t keepalive_secs;  // default 30
+    uint16_t log_batch_secs;  // default 5; 0 = realtime
 } scadable_config_t;
 
 // ─── Lifecycle ──────────────────────────────────────────────────
@@ -129,10 +147,16 @@ scadable_err_t scadable_connect(void);
 scadable_err_t scadable_disconnect(void);
 
 /**
- * Current state (sync, no IO).
+ * Current state (sync, no IO). Cheap — safe to poll from any task.
  */
 scadable_state_t scadable_state(void);
-bool             scadable_is_connected(void);
+
+/**
+ * Convenience: equivalent to `scadable_state() == SCADABLE_STATE_CONNECTED`.
+ * Returns true only when the broker has acknowledged our CONNECT and we're
+ * not currently disconnecting.
+ */
+bool scadable_is_connected(void);
 
 /**
  * Register event callback. Replaces previous callback. Pass NULL to unregister.
@@ -170,13 +194,33 @@ scadable_err_t scadable_announce_offline(uint32_t expected_offline_secs);
  * Returns SCADABLE_ERR_BACKPRESSURE if outbound queue is full — retry
  * after a publish completes (SCADABLE_EVT_PUBLISHED fires).
  */
-scadable_err_t scadable_publish(scadable_channel_t channel,
-                                const void *data, size_t len, uint8_t qos);
+scadable_err_t
+scadable_publish(scadable_channel_t channel, const void *data, size_t len, uint8_t qos);
 
 // ─── Telemetry (typed names from .scadable/digital-twin/) ───────
 
+/**
+ * Publish a numeric telemetry value on a typed metric channel. The metric ID
+ * comes from the SCADABLE_METRIC_* enum your build pipeline emits from
+ * .scadable/digital-twin/. Standalone builds use raw uint32_t IDs.
+ *
+ * Wire format: JSON envelope `{"v":1,"ts_ms":...,"value":<n>}` published
+ * QoS0 on `{ns}/{gw}/metrics/m{N}`. Cloud's NATS bridge republishes on
+ * `events.{ns}.{gw}.data.m{N}` for the historian.
+ *
+ * Rate limiting + batching are not yet implemented — every call publishes
+ * inline. Don't fire these in a tight loop without throttling yourself.
+ *
+ * @return SCADABLE_OK, SCADABLE_ERR_NOT_CONNECTED, or SCADABLE_ERR_BACKPRESSURE.
+ */
 scadable_err_t scadable_metric_set_u32(scadable_metric_t metric, uint32_t value);
-scadable_err_t scadable_metric_set_f64(scadable_metric_t metric, double   value);
+
+/**
+ * Same as scadable_metric_set_u32 but for double-precision floats. Encoded
+ * with %.17g — round-trips through IEEE 754 cleanly. Use for any value that
+ * isn't an integer count: temperatures, voltages, ratios, percentages.
+ */
+scadable_err_t scadable_metric_set_f64(scadable_metric_t metric, double value);
 
 // ─── Logging (leveled, batched, structured) ─────────────────────
 
@@ -187,26 +231,44 @@ typedef enum {
     SCADABLE_LOG_ERROR_LEVEL,
 } scadable_log_level_t;
 
-void scadable_log_(scadable_log_level_t lvl, const char *file, int line,
-                   const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+/**
+ * Underlying log primitive. Call via the SCADABLE_LOG_* macros below — they
+ * fill in __FILE__ + __LINE__ for you. Format string is printf-style; the
+ * formatted record is capped at ~224 bytes (longer messages are truncated).
+ *
+ * Records buffer into a 128-deep ring; a FreeRTOS flusher task drains them
+ * every `log_batch_secs` (default 5; set via scadable_config_t). Records also
+ * mirror to ESP-IDF's UART logger via ESP_LOG_LEVEL so `idf.py monitor` shows
+ * the same lines without waiting for the next batch. Set `log_batch_secs = 0`
+ * for realtime behavior (each record published immediately).
+ *
+ * Safe to call from any task. Pre-init calls fall back to ESP_LOGI() / printf
+ * so boot-time log lines aren't lost.
+ */
+void scadable_log_(scadable_log_level_t lvl, const char *file, int line, const char *fmt, ...)
+    __attribute__((format(printf, 4, 5)));
 
-#define SCADABLE_LOG_DEBUG(fmt, ...) scadable_log_(SCADABLE_LOG_DEBUG_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define SCADABLE_LOG_INFO(fmt, ...)  scadable_log_(SCADABLE_LOG_INFO_LEVEL,  __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define SCADABLE_LOG_WARN(fmt, ...)  scadable_log_(SCADABLE_LOG_WARN_LEVEL,  __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define SCADABLE_LOG_ERROR(fmt, ...) scadable_log_(SCADABLE_LOG_ERROR_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define SCADABLE_LOG_DEBUG(fmt, ...)                                                               \
+    scadable_log_(SCADABLE_LOG_DEBUG_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define SCADABLE_LOG_INFO(fmt, ...)                                                                \
+    scadable_log_(SCADABLE_LOG_INFO_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define SCADABLE_LOG_WARN(fmt, ...)                                                                \
+    scadable_log_(SCADABLE_LOG_WARN_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define SCADABLE_LOG_ERROR(fmt, ...)                                                               \
+    scadable_log_(SCADABLE_LOG_ERROR_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 
 // ─── Diagnostics ────────────────────────────────────────────────
 
 typedef enum {
-    TEST_RESULT_PASS = 0,
+    TEST_RESULT_PASS           = 0,
     TEST_RESULT_PASS_WITH_WARN = 1,
-    TEST_RESULT_FAIL = 2,
+    TEST_RESULT_FAIL           = 2,
 } scadable_test_status_t;
 
 typedef struct {
     scadable_test_status_t status;
-    char     message[256];          // formatted message, capped to keep RAM small
-    uint32_t duration_ms;           // library auto-measures
+    char message[256];     // formatted message, capped to keep RAM small
+    uint32_t duration_ms;  // library auto-measures
 } scadable_test_result_t;
 
 typedef struct scadable_test_ctx scadable_test_ctx_t;
@@ -234,18 +296,16 @@ void scadable_test_log_(scadable_test_ctx_t *ctx, const char *fmt, ...)
 //     if (problem) return TEST_FAIL("sensor unreachable");
 //     return TEST_PASS("temp=%.2f", t);
 // }
-#define SCADABLE_TEST(name, ctx_param) \
-    scadable_test_result_t name(scadable_test_ctx_t *ctx_param)
+#define SCADABLE_TEST(name, ctx_param) scadable_test_result_t name(scadable_test_ctx_t *ctx_param)
 
 #define TEST_LOG(ctx, fmt, ...) scadable_test_log_(ctx, fmt, ##__VA_ARGS__)
 
-scadable_test_result_t scadable_test_make_(scadable_test_status_t status,
-                                           const char *fmt, ...)
+scadable_test_result_t scadable_test_make_(scadable_test_status_t status, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 
-#define TEST_PASS(...)            scadable_test_make_(TEST_RESULT_PASS,           __VA_ARGS__)
-#define TEST_PASS_WITH_WARN(...)  scadable_test_make_(TEST_RESULT_PASS_WITH_WARN, __VA_ARGS__)
-#define TEST_FAIL(...)            scadable_test_make_(TEST_RESULT_FAIL,           __VA_ARGS__)
+#define TEST_PASS(...)           scadable_test_make_(TEST_RESULT_PASS, __VA_ARGS__)
+#define TEST_PASS_WITH_WARN(...) scadable_test_make_(TEST_RESULT_PASS_WITH_WARN, __VA_ARGS__)
+#define TEST_FAIL(...)           scadable_test_make_(TEST_RESULT_FAIL, __VA_ARGS__)
 
 // scadable_init_diagnostics() is emitted by the build pipeline from
 // .scadable/diagnostics/*.yaml. Customer calls it once after scadable_init().
@@ -255,15 +315,69 @@ extern void scadable_init_diagnostics(void);
 
 // ─── Env vars + secrets (delivered at runtime via mTLS HTTPS pull) ───
 
+/**
+ * Get the value of a runtime env var. Returns NULL if the key isn't set.
+ *
+ * Env vars are fetched from the cloud via mTLS HTTPS GET to
+ * `https://edge.scadable.com/api/v1/gateways/{id}/env_vars` at startup
+ * and refreshed whenever the cloud sends an EVT_ENV_CHANGED nudge over
+ * MQTT. The cache lives in RAM only (NOT persisted to NVS).
+ *
+ * Returned pointer is owned by the library and remains valid until the
+ * next refresh — copy it if you need to hold across an env update.
+ */
 const char *scadable_env_get(const char *key);
-const char *scadable_env_get_or(const char *key, const char *fallback);
-int32_t     scadable_env_get_int(const char *key, int32_t fallback);
-double      scadable_env_get_double(const char *key, double fallback);
-bool        scadable_env_get_bool(const char *key, bool fallback);
 
+/**
+ * Same as scadable_env_get but returns `fallback` instead of NULL when the
+ * key is missing. Use this for ergonomic default-value patterns:
+ *   const char *region = scadable_env_get_or("REGION", "us-east");
+ */
+const char *scadable_env_get_or(const char *key, const char *fallback);
+
+/**
+ * Get an env var as an int32. Returns `fallback` if the key is missing OR if
+ * the value isn't a fully-consumable int (no trailing chars allowed).
+ */
+int32_t scadable_env_get_int(const char *key, int32_t fallback);
+
+/**
+ * Get an env var as a double. Returns `fallback` if missing or unparseable.
+ */
+double scadable_env_get_double(const char *key, double fallback);
+
+/**
+ * Get an env var as a bool. Accepts "true"/"1"/"yes" → true and
+ * "false"/"0"/"no" → false; anything else returns `fallback`.
+ */
+bool scadable_env_get_bool(const char *key, bool fallback);
+
+/**
+ * Get a secret value. Same contract as scadable_env_get but reads from the
+ * separate `secrets` table — not visible to env_get callers.
+ *
+ * Secrets are NOT persisted to NVS — they live in RAM only so a flash dump
+ * doesn't leak them. Trade-off: secrets reset to "missing" on reboot until
+ * the next refresh succeeds. Don't put critical bootstrap credentials here;
+ * those belong in the device cert (which IS in NVS, encrypted at rest by
+ * flash encryption when enabled).
+ */
 const char *scadable_secret_get(const char *key);
+
+/**
+ * Same as scadable_secret_get but returns `fallback` instead of NULL.
+ */
 const char *scadable_secret_get_or(const char *key, const char *fallback);
 
+/**
+ * Per-key env-change callback. Fires once per env key after every refresh
+ * (whether the value actually changed or not — diff-only behavior is v0.2).
+ * Does NOT fire for secret values (those use the secret_get path).
+ *
+ * Callback runs on the library's HTTPS-fetch task. Keep it fast and don't
+ * call scadable_env_get / scadable_env_change_cb_t-related functions
+ * recursively — though scadable_env_get itself is reentrant-safe.
+ */
 typedef void (*scadable_env_change_cb_t)(const char *key, const char *new_value, void *user);
 void scadable_on_env_change(scadable_env_change_cb_t cb, void *user);
 
