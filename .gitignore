@@ -1,0 +1,13 @@
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+.cache/
+.vscode/
+.idea/
+*.o
+*.a
+*.so
+*.dylib
+.DS_Store
