@@ -16,5 +16,3 @@ tags:
 dependencies:
   idf:
     version: ">=5.1"
-  espressif/mqtt:
-    version: "~5.0"
