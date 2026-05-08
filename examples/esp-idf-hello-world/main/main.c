@@ -30,6 +30,6 @@ void app_main(void) {
     wifi_up();
     scadable_init(NULL);
     scadable_connect();
-    scadable_publish(0, "world", 5, 1);   // SCADABLE_CH_HELLO == 0 in standalone mode
+    scadable_publish(0, "world", 5, 1);  // SCADABLE_CH_HELLO == 0 in standalone mode
     ESP_LOGI(TAG, "scadable hello-world running");
 }

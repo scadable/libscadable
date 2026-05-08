@@ -20,14 +20,14 @@ typedef uint32_t scadable_channel_t;
 typedef uint32_t scadable_metric_t;
 typedef uint32_t scadable_test_t;
 
-#define SCADABLE_CH_HELLO        ((scadable_channel_t)0)
-#define SCADABLE_CH_TELEMETRY    ((scadable_channel_t)1)
-#define SCADABLE_CH_EVENTS       ((scadable_channel_t)2)
+#define SCADABLE_CH_HELLO     ((scadable_channel_t)0)
+#define SCADABLE_CH_TELEMETRY ((scadable_channel_t)1)
+#define SCADABLE_CH_EVENTS    ((scadable_channel_t)2)
 
-#define SCADABLE_BROKER_URL      "mqtts://io.scadable.com:8883"
-#define SCADABLE_NAMESPACE_ID    "ns_unset"
-#define SCADABLE_TARGET          "unset"
-#define SCADABLE_BUILD_VERSION   "v0.0.0-standalone"
-#define SCADABLE_BUILD_SHA       "unknown"
+#define SCADABLE_BROKER_URL    "mqtts://io.scadable.com:8883"
+#define SCADABLE_NAMESPACE_ID  "ns_unset"
+#define SCADABLE_TARGET        "unset"
+#define SCADABLE_BUILD_VERSION "v0.0.0-standalone"
+#define SCADABLE_BUILD_SHA     "unknown"
 
 #endif  // SCADABLE_GENERATED_H

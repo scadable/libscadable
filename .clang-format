@@ -1,0 +1,30 @@
+# clang-format style for libscadable.
+# Tuned to match the existing hand-curated style in include/scadable.h —
+# notably aligned enum values + assignments. The .c files in src/ are
+# formatted to the same baseline.
+BasedOnStyle: LLVM
+Language: Cpp
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+PointerAlignment: Right
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: false
+SortIncludes: false
+IncludeBlocks: Preserve
+KeepEmptyLinesAtTheStartOfBlocks: false
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+BreakBeforeBraces: Attach
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackParameters: false
+BinPackArguments: true
+ContinuationIndentWidth: 4
+IndentPPDirectives: AfterHash
+SpacesBeforeTrailingComments: 2
