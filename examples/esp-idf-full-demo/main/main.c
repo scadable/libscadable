@@ -65,7 +65,10 @@ static void on_scd_event(scadable_event_t e, void *user) {
     (void)user;
     switch (e.type) {
     case SCADABLE_EVT_CONNECTED:
-        SCADABLE_LOG_INFO("MQTT connected (recovered_count=%u)", e.connected.recovered_count);
+        // recovered_count is uint32_t (long unsigned int on Xtensa) — cast to
+        // unsigned long so the %lu format width matches across hosts.
+        SCADABLE_LOG_INFO("MQTT connected (recovered_count=%lu)",
+                          (unsigned long)e.connected.recovered_count);
         break;
     case SCADABLE_EVT_DISCONNECTED:
         SCADABLE_LOG_WARN("MQTT disconnected");
