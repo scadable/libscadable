@@ -1,4 +1,4 @@
-version: "0.0.1"
+version: "0.1.0"
 description: "SCADABLE fleet ops library for ESP32. Drop into your firmware, get managed MQTT + log streaming + telemetry + remote diagnostics + signed OTA for free."
 url: "https://github.com/scadable/libscadable"
 documentation: "https://docs.scadable.com/library/esp/"

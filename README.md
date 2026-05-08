@@ -2,7 +2,7 @@
 
 The native library that customers link into their firmware to ship to the SCADABLE fleet operations platform. Drop it into your firmware, call a few functions, get managed MQTT + log streaming + telemetry + remote diagnostics + signed OTA updates for free.
 
-**Status:** v0.1 — ESP32 first. Linux, STM32, nRF, RP2040 follow as customers ask.
+**Status:** v0.1.0 — ESP32 first. Linux, STM32, nRF, RP2040 follow as customers ask. See [CHANGELOG.md](CHANGELOG.md) and [MIGRATION.md](MIGRATION.md) for upgrade notes.
 
 **License:** Apache 2.0.
 
@@ -86,6 +86,11 @@ Don't start from scratch — fork a template:
 
 Full reference at https://docs.scadable.com/library — Getting Started, API Reference, Recipes, Migration guides from competing tools (Particle, Memfault, AWS IoT Embedded-C, plain ESP-IDF MQTT).
 
+## Examples
+
+- [`examples/esp-idf-hello-world/`](examples/esp-idf-hello-world/) — minimum 4-line firmware (publish "world" once and idle).
+- [`examples/esp-idf-full-demo/`](examples/esp-idf-full-demo/) — exercises every public API (lifecycle, publish, telemetry, log, env, secrets, diagnostics, OTA gate, scheduled-offline announce, event callbacks). Read this when integrating libscadable into your own project.
+
 ## Building from source
 
 ```bash
@@ -93,6 +98,13 @@ git clone https://github.com/scadable/libscadable
 cd libscadable/examples/esp-idf-hello-world
 idf.py set-target esp32-s3
 idf.py build
+```
+
+Run the host-side smoke suite (no chip required, ~1 s):
+
+```bash
+cmake -S tests/host -B build/host && cmake --build build/host
+./build/host/test_libscadable
 ```
 
 ## Contributing
