@@ -69,5 +69,5 @@ jobs:
         uses: espressif/upload-components-ci-action@v1
         with:
           name: libscadable
-          namespace: scadable
+          namespace: crypto-a
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}

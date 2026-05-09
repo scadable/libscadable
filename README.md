@@ -29,7 +29,7 @@ Add to your project's `idf_component.yml`:
 
 ```yaml
 dependencies:
-  scadable/libscadable: "^0.1.0"
+  crypto-a/libscadable: "^0.1.0"
 ```
 
 Then in your component's `CMakeLists.txt`:
@@ -57,7 +57,7 @@ libscadable = "0.1"
 platform = espressif32
 board = esp32-s3-devkitc-1
 framework = arduino
-lib_deps = scadable/libscadable@^0.1.0
+lib_deps = crypto-a/libscadable@^0.1.0
 ```
 
 ## Public API
