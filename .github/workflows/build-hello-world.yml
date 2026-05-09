@@ -1,0 +1,197 @@
+name: Build hello-world provisioning firmware
+
+# Builds the libscadable `examples/esp-idf-hello-world/` example for ESP32 and
+# ESP32-S3, then publishes the resulting flash bundle (bootloader + partition
+# table + app + manifest.json) to a GitHub Release on tag push.
+#
+# Why this workflow exists
+# ────────────────────────
+# The web-dashboard "Provisioning mode" flow flashes a known-good libscadable
+# firmware onto a blank ESP32 via WebSerial, so the chip comes online as
+# `provisioned` and is ready to receive the customer's real firmware via OTA
+# later. The dashboard's `runByorFlash` (web-dashboard/src/lib/espFlasher.ts)
+# fetches `<base>/manifest.json` then writes each part to flash at the
+# offsets the manifest specifies. This workflow produces that bundle.
+#
+# Schema reference: see `FirmwareManifest` in
+# `web-dashboard/src/lib/espFlasher.ts` — fields are name, version, builds[]
+# where each build has chipFamily ("ESP32" | "ESP32-S3") and parts[] of
+# { path, offset }. `path` is appended to the manifest's base URL via
+# `${base}/${path}`, so for GitHub-Releases-as-CDN we keep paths flat
+# (GitHub flattens release asset names — they all live next to the manifest).
+#
+# Trigger model
+# ─────────────
+# - PR: build matrix only, no release. Catches breakage before merge.
+# - main push: same — build matrix only, no release. Keeps green-build signal
+#   without spamming releases on every commit.
+# - Tag `provisioning-v*`: build matrix + create a GitHub Release with the
+#   bins + manifest.json attached. The dashboard fetches from the release URL.
+#
+# To cut a new release:
+#   git tag provisioning-v0.1.0
+#   git push origin provisioning-v0.1.0
+#
+# The dashboard's `PROVISIONING_MANIFEST_BASE_URL` should point at the
+# release's download URL, e.g.
+# https://github.com/scadable/libscadable/releases/download/provisioning-v0.1.0
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'examples/esp-idf-hello-world/**'
+      - 'src/**'
+      - 'include/**'
+      - 'CMakeLists.txt'
+      - 'idf_component.yml'
+      - '.github/workflows/build-hello-world.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'examples/esp-idf-hello-world/**'
+      - 'src/**'
+      - 'include/**'
+      - 'CMakeLists.txt'
+      - 'idf_component.yml'
+      - '.github/workflows/build-hello-world.yml'
+    tags:
+      - 'provisioning-v*'
+
+permissions:
+  contents: write  # required for softprops/action-gh-release to attach assets
+
+jobs:
+  build:
+    name: Build (${{ matrix.chip }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ESP32 classic — Xtensa LX6 dual-core. Bootloader at offset 0x1000.
+          - chip: esp32
+            family: ESP32
+            bootloader_offset: 4096      # 0x1000
+          # ESP32-S3 — Xtensa LX7 dual-core with native USB. Bootloader at 0x0.
+          - chip: esp32s3
+            family: ESP32-S3
+            bootloader_offset: 0         # 0x0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3
+          target: ${{ matrix.chip }}
+          path: examples/esp-idf-hello-world
+
+      # Stage the three flash artifacts ESP-IDF produces (bootloader,
+      # partition table, app) into dist/ with chip-prefixed names so they
+      # collapse cleanly into a flat GitHub Release (which doesn't preserve
+      # directory structure on assets).
+      - name: Stage flash artifacts
+        run: |
+          set -euo pipefail
+          BUILD_DIR="examples/esp-idf-hello-world/build"
+          OUT_DIR="dist"
+          mkdir -p "$OUT_DIR"
+          cp "$BUILD_DIR/bootloader/bootloader.bin"           "$OUT_DIR/${{ matrix.chip }}-bootloader.bin"
+          cp "$BUILD_DIR/partition_table/partition-table.bin" "$OUT_DIR/${{ matrix.chip }}-partition-table.bin"
+          # The app binary is named after the project (esp-idf-hello-world.bin).
+          cp "$BUILD_DIR/esp-idf-hello-world.bin"             "$OUT_DIR/${{ matrix.chip }}-app.bin"
+          ls -la "$OUT_DIR"
+
+      - name: Upload chip artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.chip }}
+          path: dist/
+          retention-days: 7
+
+  # Combine the per-chip artifacts into a single flat directory and generate
+  # the dashboard-shaped manifest.json. Runs only on `provisioning-v*` tags.
+  release:
+    name: Publish provisioning firmware release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/provisioning-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Lay out the release tree flat so GitHub's release-asset CDN serves
+      # every part next to the manifest at the same base URL:
+      #   release/manifest.json
+      #   release/esp32-bootloader.bin
+      #   release/esp32-partition-table.bin
+      #   release/esp32-app.bin
+      #   release/esp32s3-bootloader.bin
+      #   release/esp32s3-partition-table.bin
+      #   release/esp32s3-app.bin
+      #
+      # The manifest references these by relative path so a single base URL
+      # serves both chip families. This matches espFlasher.ts's
+      # `${base}/${path}` URL construction.
+      - name: Assemble release tree + manifest
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp artifacts/firmware-esp32/*   release/
+          cp artifacts/firmware-esp32s3/* release/
+          # Strip the leading `provisioning-` from the tag name to get a
+          # clean version string (e.g. "v0.1.0").
+          VERSION="${GITHUB_REF_NAME#provisioning-}"
+          # Offsets explained (decimal so JSON is portable):
+          #   ESP32 bootloader      0x1000  =  4096
+          #   ESP32-S3 bootloader   0x0     =     0   (S3 ROM loads bootloader from 0)
+          #   Partition table       0x8000  = 32768   (stock layout, both chips)
+          #   App                   0x10000 = 65536   (single-app stock layout)
+          cat > release/manifest.json <<JSON
+          {
+            "name": "scadable-provisioning-hello-world",
+            "version": "${VERSION}",
+            "builds": [
+              {
+                "chipFamily": "ESP32",
+                "parts": [
+                  { "path": "esp32-bootloader.bin",       "offset": 4096  },
+                  { "path": "esp32-partition-table.bin",  "offset": 32768 },
+                  { "path": "esp32-app.bin",              "offset": 65536 }
+                ]
+              },
+              {
+                "chipFamily": "ESP32-S3",
+                "parts": [
+                  { "path": "esp32s3-bootloader.bin",       "offset": 0     },
+                  { "path": "esp32s3-partition-table.bin",  "offset": 32768 },
+                  { "path": "esp32s3-app.bin",              "offset": 65536 }
+                ]
+              }
+            ]
+          }
+          JSON
+          echo "Generated manifest:"
+          cat release/manifest.json
+          echo "Release tree:"
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Provisioning firmware ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/manifest.json
+            release/esp32-bootloader.bin
+            release/esp32-partition-table.bin
+            release/esp32-app.bin
+            release/esp32s3-bootloader.bin
+            release/esp32s3-partition-table.bin
+            release/esp32s3-app.bin
