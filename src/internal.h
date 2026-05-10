@@ -131,13 +131,16 @@ int scd_nvs_set_str(const char *ns, const char *key, const char *value);
 // Loads device cert + key from "scadable_certs" NVS namespace. Returns
 // SCADABLE_ERR_NO_CERT if either is missing.
 //
-// `ca_pem_out` is optional — pass NULL if you don't need it. When non-NULL,
-// the CA cert is loaded from key "ca_cert"; if absent, *ca_pem_out is set
-// to NULL and the function still returns SCADABLE_OK (only device cert + key
-// are required).
-//
 // On ESP-IDF the buffers are heap-allocated and the caller owns them.
-scadable_err_t scd_load_certs(char **cert_pem_out, char **key_pem_out, char **ca_pem_out);
+//
+// CA verification is NOT loaded here — the broker (io.scadable.com) is
+// fronted by a public-trust LE leaf as of libscadable 0.2.0, so all
+// outbound TLS uses esp_crt_bundle_attach (the Mozilla root bundle baked
+// into mbedTLS via CONFIG_MBEDTLS_CERTIFICATE_BUNDLE). The previous
+// per-namespace `ca_cert` NVS key is no longer read; older provisioning
+// bundles that wrote it remain compatible (the key is ignored, NVS space
+// is freed when the bundle is overwritten).
+scadable_err_t scd_load_certs(char **cert_pem_out, char **key_pem_out);
 
 // ─── Defaults (overridden by scadable_config_t at init time) ────────────────
 

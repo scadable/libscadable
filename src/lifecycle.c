@@ -53,7 +53,9 @@ static struct {
     uint16_t log_batch_secs;
     char *cert_pem;         // owned, freed at shutdown
     char *key_pem;          // owned, freed at shutdown
-    char *ca_pem;           // owned, freed at shutdown; NULL → use Mozilla bundle
+    // ca_pem deliberately removed in 0.2.0 — broker verification now goes
+    // through esp_crt_bundle_attach (Mozilla bundle) so chips no longer
+    // need a per-namespace CA in NVS.
     void *mqtt;             // esp_mqtt_client_handle_t on ESP, NULL on host
     uint32_t pending_qos1;  // outstanding PUBACKs
     uint32_t recovered_count;
@@ -107,7 +109,7 @@ __attribute__((weak)) const char *scadable_gen_build_version(void) {
 #ifdef SCADABLE_BUILD_VERSION
     return SCADABLE_BUILD_VERSION;
 #else
-    return "v0.1.0-standalone";
+    return "v0.2.0-standalone";
 #endif
 }
 __attribute__((weak)) const char *scadable_gen_build_sha(void) {
@@ -272,7 +274,7 @@ int scd_nvs_set_str(const char *ns, const char *key, const char *value) {
     return err == ESP_OK ? 0 : -1;
 }
 
-scadable_err_t scd_load_certs(char **cert_out, char **key_out, char **ca_out) {
+scadable_err_t scd_load_certs(char **cert_out, char **key_out) {
     nvs_handle_t h;
     if (nvs_open("scadable_certs", NVS_READONLY, &h) != ESP_OK) {
         return SCADABLE_ERR_NO_CERT;
@@ -303,25 +305,9 @@ scadable_err_t scd_load_certs(char **cert_out, char **key_out, char **ca_out) {
         return SCADABLE_ERR_NO_CERT;
     }
 
-    // CA cert is optional — older provisioning bundles don't include it,
-    // and the public-CA fallback (Mozilla bundle) handles those cases. Read
-    // it best-effort and let the caller decide what to do when it's missing.
-    char *ca = NULL;
-    if (ca_out) {
-        size_t ca_sz = 0;
-        if (nvs_get_str(h, "ca_cert", NULL, &ca_sz) == ESP_OK) {
-            ca = malloc(ca_sz);
-            if (ca && nvs_get_str(h, "ca_cert", ca, &ca_sz) != ESP_OK) {
-                free(ca);
-                ca = NULL;
-            }
-        }
-    }
-
     nvs_close(h);
     *cert_out = cert;
     *key_out  = key;
-    if (ca_out) *ca_out = ca;
     return SCADABLE_OK;
 }
 
@@ -347,10 +333,9 @@ int scd_nvs_set_str(const char *ns, const char *key, const char *value) {
     (void)value;
     return 0;
 }
-scadable_err_t scd_load_certs(char **cert_out, char **key_out, char **ca_out) {
+scadable_err_t scd_load_certs(char **cert_out, char **key_out) {
     (void)cert_out;
     (void)key_out;
-    (void)ca_out;
     return SCADABLE_ERR_NO_CERT;
 }
 
@@ -537,21 +522,15 @@ scadable_err_t scadable_init(const scadable_config_t *cfg) {
         scd_nvs_set_str("scadable_cfg", "gateway_id", g.gateway_id);
     }
 
-    // 3. Load certs (required for mTLS — but not for host tests).
-    //    CA cert is best-effort: if missing we fall back to the Mozilla
-    //    bundle in scadable_connect().
+    // 3. Load device cert + key (required for mTLS — but not for host tests).
+    //    Broker verification uses the Mozilla root bundle in scadable_connect()
+    //    (esp_crt_bundle_attach), so no CA is read from NVS as of 0.2.0.
 #ifdef ESP_PLATFORM
-    scadable_err_t cert_err = scd_load_certs(&g.cert_pem, &g.key_pem, &g.ca_pem);
+    scadable_err_t cert_err = scd_load_certs(&g.cert_pem, &g.key_pem);
     if (cert_err != SCADABLE_OK) {
         ESP_LOGE(TAG, "no client cert in NVS namespace 'scadable_certs' — "
                       "flash one via the SCADABLE web-flasher");
         return cert_err;
-    }
-    if (!g.ca_pem) {
-        ESP_LOGW(TAG, "no CA cert in NVS 'scadable_certs/ca_cert' — falling back "
-                      "to esp_crt_bundle_attach (Mozilla bundle). mTLS to a "
-                      "private-CA broker (io.scadable.com) will fail until the "
-                      "dashboard is upgraded to write ca_cert during provisioning.");
     }
 #endif
 
@@ -587,29 +566,26 @@ scadable_err_t scadable_connect(void) {
                          scadable_gen_build_version(), scd_gateway_id());
     if (lwt_n <= 0 || (size_t)lwt_n >= sizeof(lwt_payload)) return SCADABLE_ERR_INTERNAL;
 
-    // Broker verification: prefer the per-namespace CA flashed via the
-    // dashboard (issued by service-edge's intermediate CA — same chain that
-    // signed our client cert). Fall back to the Mozilla bundle so a future
-    // public-CA broker still works without a firmware change.
+    // Broker verification: always use the Mozilla root bundle baked into
+    // mbedTLS (CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y). io.scadable.com is
+    // fronted by a public-trust Let's Encrypt leaf as of 2026-05-10, so
+    // no per-namespace CA distribution is needed. Same path is used for
+    // env_vars + OTA HTTPS in env.c / ota.c.
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri                     = g.broker_url,
-        .credentials.client_id                  = g.gateway_id,
-        .credentials.authentication.certificate = g.cert_pem,
-        .credentials.authentication.key         = g.key_pem,
-        .session.keepalive                      = g.keepalive_secs,
-        .session.last_will.topic                = lwt_topic,
-        .session.last_will.msg                  = lwt_payload,
-        .session.last_will.msg_len              = lwt_n,
-        .session.last_will.qos                  = 1,
-        .session.last_will.retain               = 1,
-        .network.disable_auto_reconnect         = false,
-        .network.reconnect_timeout_ms           = 5000,
+        .broker.address.uri                            = g.broker_url,
+        .broker.verification.crt_bundle_attach         = esp_crt_bundle_attach,
+        .credentials.client_id                         = g.gateway_id,
+        .credentials.authentication.certificate        = g.cert_pem,
+        .credentials.authentication.key                = g.key_pem,
+        .session.keepalive                             = g.keepalive_secs,
+        .session.last_will.topic                       = lwt_topic,
+        .session.last_will.msg                         = lwt_payload,
+        .session.last_will.msg_len                     = lwt_n,
+        .session.last_will.qos                         = 1,
+        .session.last_will.retain                      = 1,
+        .network.disable_auto_reconnect                = false,
+        .network.reconnect_timeout_ms                  = 5000,
     };
-    if (g.ca_pem) {
-        mqtt_cfg.broker.verification.certificate = g.ca_pem;
-    } else {
-        mqtt_cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
-    }
 
     g.mqtt = esp_mqtt_client_init(&mqtt_cfg);
     if (!g.mqtt) {
