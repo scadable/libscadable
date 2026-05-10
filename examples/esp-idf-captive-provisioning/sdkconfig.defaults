@@ -3,10 +3,13 @@
 # Tuned for: WiFi AP + STA modes, embedded HTTP server, raw UDP DNS server,
 # OTA-ready partition table, mbedTLS for downstream MQTT.
 
-# Custom partition table (see partitions.csv).
+# Custom partition table (see partitions.csv) — 3.2M layout requires 4M
+# flash. Most ESP32 dev boards ship with 4M+; ESP32-S3 boards usually 8M.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 
 # WiFi — give the AP enough headroom for one phone client, keep STA
 # defaults for libscadable.
