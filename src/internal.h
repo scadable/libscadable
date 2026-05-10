@@ -131,8 +131,13 @@ int scd_nvs_set_str(const char *ns, const char *key, const char *value);
 // Loads device cert + key from "scadable_certs" NVS namespace. Returns
 // SCADABLE_ERR_NO_CERT if either is missing.
 //
+// `ca_pem_out` is optional — pass NULL if you don't need it. When non-NULL,
+// the CA cert is loaded from key "ca_cert"; if absent, *ca_pem_out is set
+// to NULL and the function still returns SCADABLE_OK (only device cert + key
+// are required).
+//
 // On ESP-IDF the buffers are heap-allocated and the caller owns them.
-scadable_err_t scd_load_certs(char **cert_pem_out, char **key_pem_out);
+scadable_err_t scd_load_certs(char **cert_pem_out, char **key_pem_out, char **ca_pem_out);
 
 // ─── Defaults (overridden by scadable_config_t at init time) ────────────────
 

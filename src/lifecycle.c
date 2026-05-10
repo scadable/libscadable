@@ -23,6 +23,7 @@
 #include <string.h>
 
 #ifdef ESP_PLATFORM
+#    include "esp_crt_bundle.h"
 #    include "esp_event.h"
 #    include "esp_log.h"
 #    include "esp_mac.h"
@@ -52,6 +53,7 @@ static struct {
     uint16_t log_batch_secs;
     char *cert_pem;         // owned, freed at shutdown
     char *key_pem;          // owned, freed at shutdown
+    char *ca_pem;           // owned, freed at shutdown; NULL → use Mozilla bundle
     void *mqtt;             // esp_mqtt_client_handle_t on ESP, NULL on host
     uint32_t pending_qos1;  // outstanding PUBACKs
     uint32_t recovered_count;
@@ -270,7 +272,7 @@ int scd_nvs_set_str(const char *ns, const char *key, const char *value) {
     return err == ESP_OK ? 0 : -1;
 }
 
-scadable_err_t scd_load_certs(char **cert_out, char **key_out) {
+scadable_err_t scd_load_certs(char **cert_out, char **key_out, char **ca_out) {
     nvs_handle_t h;
     if (nvs_open("scadable_certs", NVS_READONLY, &h) != ESP_OK) {
         return SCADABLE_ERR_NO_CERT;
@@ -300,9 +302,26 @@ scadable_err_t scd_load_certs(char **cert_out, char **key_out) {
         nvs_close(h);
         return SCADABLE_ERR_NO_CERT;
     }
+
+    // CA cert is optional — older provisioning bundles don't include it,
+    // and the public-CA fallback (Mozilla bundle) handles those cases. Read
+    // it best-effort and let the caller decide what to do when it's missing.
+    char *ca = NULL;
+    if (ca_out) {
+        size_t ca_sz = 0;
+        if (nvs_get_str(h, "ca_cert", NULL, &ca_sz) == ESP_OK) {
+            ca = malloc(ca_sz);
+            if (ca && nvs_get_str(h, "ca_cert", ca, &ca_sz) != ESP_OK) {
+                free(ca);
+                ca = NULL;
+            }
+        }
+    }
+
     nvs_close(h);
     *cert_out = cert;
     *key_out  = key;
+    if (ca_out) *ca_out = ca;
     return SCADABLE_OK;
 }
 
@@ -328,9 +347,10 @@ int scd_nvs_set_str(const char *ns, const char *key, const char *value) {
     (void)value;
     return 0;
 }
-scadable_err_t scd_load_certs(char **cert_out, char **key_out) {
+scadable_err_t scd_load_certs(char **cert_out, char **key_out, char **ca_out) {
     (void)cert_out;
     (void)key_out;
+    (void)ca_out;
     return SCADABLE_ERR_NO_CERT;
 }
 
@@ -518,12 +538,20 @@ scadable_err_t scadable_init(const scadable_config_t *cfg) {
     }
 
     // 3. Load certs (required for mTLS — but not for host tests).
+    //    CA cert is best-effort: if missing we fall back to the Mozilla
+    //    bundle in scadable_connect().
 #ifdef ESP_PLATFORM
-    scadable_err_t cert_err = scd_load_certs(&g.cert_pem, &g.key_pem);
+    scadable_err_t cert_err = scd_load_certs(&g.cert_pem, &g.key_pem, &g.ca_pem);
     if (cert_err != SCADABLE_OK) {
         ESP_LOGE(TAG, "no client cert in NVS namespace 'scadable_certs' — "
                       "flash one via the SCADABLE web-flasher");
         return cert_err;
+    }
+    if (!g.ca_pem) {
+        ESP_LOGW(TAG, "no CA cert in NVS 'scadable_certs/ca_cert' — falling back "
+                      "to esp_crt_bundle_attach (Mozilla bundle). mTLS to a "
+                      "private-CA broker (io.scadable.com) will fail until the "
+                      "dashboard is upgraded to write ca_cert during provisioning.");
     }
 #endif
 
@@ -559,9 +587,12 @@ scadable_err_t scadable_connect(void) {
                          scadable_gen_build_version(), scd_gateway_id());
     if (lwt_n <= 0 || (size_t)lwt_n >= sizeof(lwt_payload)) return SCADABLE_ERR_INTERNAL;
 
+    // Broker verification: prefer the per-namespace CA flashed via the
+    // dashboard (issued by service-edge's intermediate CA — same chain that
+    // signed our client cert). Fall back to the Mozilla bundle so a future
+    // public-CA broker still works without a firmware change.
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri                     = g.broker_url,
-        .broker.verification.crt_bundle_attach  = NULL,  // mTLS → use our CA below
         .credentials.client_id                  = g.gateway_id,
         .credentials.authentication.certificate = g.cert_pem,
         .credentials.authentication.key         = g.key_pem,
@@ -574,6 +605,11 @@ scadable_err_t scadable_connect(void) {
         .network.disable_auto_reconnect         = false,
         .network.reconnect_timeout_ms           = 5000,
     };
+    if (g.ca_pem) {
+        mqtt_cfg.broker.verification.certificate = g.ca_pem;
+    } else {
+        mqtt_cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
+    }
 
     g.mqtt = esp_mqtt_client_init(&mqtt_cfg);
     if (!g.mqtt) {
