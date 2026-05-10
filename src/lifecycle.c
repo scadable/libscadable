@@ -51,8 +51,8 @@ static struct {
     char broker_url[160];
     uint16_t keepalive_secs;
     uint16_t log_batch_secs;
-    char *cert_pem;         // owned, freed at shutdown
-    char *key_pem;          // owned, freed at shutdown
+    char *cert_pem;  // owned, freed at shutdown
+    char *key_pem;   // owned, freed at shutdown
     // ca_pem deliberately removed in 0.2.0 — broker verification now goes
     // through esp_crt_bundle_attach (Mozilla bundle) so chips no longer
     // need a per-namespace CA in NVS.
@@ -572,19 +572,19 @@ scadable_err_t scadable_connect(void) {
     // no per-namespace CA distribution is needed. Same path is used for
     // env_vars + OTA HTTPS in env.c / ota.c.
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri                            = g.broker_url,
-        .broker.verification.crt_bundle_attach         = esp_crt_bundle_attach,
-        .credentials.client_id                         = g.gateway_id,
-        .credentials.authentication.certificate        = g.cert_pem,
-        .credentials.authentication.key                = g.key_pem,
-        .session.keepalive                             = g.keepalive_secs,
-        .session.last_will.topic                       = lwt_topic,
-        .session.last_will.msg                         = lwt_payload,
-        .session.last_will.msg_len                     = lwt_n,
-        .session.last_will.qos                         = 1,
-        .session.last_will.retain                      = 1,
-        .network.disable_auto_reconnect                = false,
-        .network.reconnect_timeout_ms                  = 5000,
+        .broker.address.uri                     = g.broker_url,
+        .broker.verification.crt_bundle_attach  = esp_crt_bundle_attach,
+        .credentials.client_id                  = g.gateway_id,
+        .credentials.authentication.certificate = g.cert_pem,
+        .credentials.authentication.key         = g.key_pem,
+        .session.keepalive                      = g.keepalive_secs,
+        .session.last_will.topic                = lwt_topic,
+        .session.last_will.msg                  = lwt_payload,
+        .session.last_will.msg_len              = lwt_n,
+        .session.last_will.qos                  = 1,
+        .session.last_will.retain               = 1,
+        .network.disable_auto_reconnect         = false,
+        .network.reconnect_timeout_ms           = 5000,
     };
 
     g.mqtt = esp_mqtt_client_init(&mqtt_cfg);
