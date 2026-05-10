@@ -1,0 +1,43 @@
+# SCADABLE captive-portal provisioning firmware sdkconfig.
+#
+# Tuned for: WiFi AP + STA modes, embedded HTTP server, raw UDP DNS server,
+# OTA-ready partition table, mbedTLS for downstream MQTT.
+
+# Custom partition table (see partitions.csv).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# WiFi — give the AP enough headroom for one phone client, keep STA
+# defaults for libscadable.
+CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP32_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+CONFIG_ESP32_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_ESP32_WIFI_AMPDU_TX_ENABLED=y
+CONFIG_ESP32_WIFI_AMPDU_RX_ENABLED=y
+
+# LWIP — DHCP server max clients for the AP captive portal.
+CONFIG_LWIP_DHCPS_MAX_STATION_NUM=4
+CONFIG_LWIP_IP_FORWARD=n
+CONFIG_LWIP_IPV6=n
+
+# HTTP server — boost stack so the form handler + scan can run together.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512
+
+# Logging — verbose during bringup is fine; ERROR-level for release.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3
+
+# mbedTLS — required for libscadable's downstream MQTT TLS once the
+# customer firmware OTAs in (mbedTLS lives in ROM partly so this only
+# costs a small heap footprint here).
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# Watchdog — relax slightly so the WiFi scan + HTML render under load
+# doesn't trip it.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+
+# Main task stack — ap_mode + http handlers fit comfortably in 8K.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

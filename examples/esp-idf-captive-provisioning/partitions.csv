@@ -1,0 +1,23 @@
+# SCADABLE captive-portal provisioning firmware partition table.
+#
+# Layout matches the standard ESP-IDF two-OTA pattern so the customer
+# firmware that lands via OTA later can swap into ota_0 / ota_1 without
+# clobbering NVS (WiFi creds + device cert) or scadable_data (log buffer).
+#
+# Sizes:
+#   nvs            (24K)   wifi creds + scadable_certs + scadable_kv
+#   otadata        (8K)    A/B slot pointer
+#   phy_init       (4K)    RF calibration
+#   ota_0 / ota_1  (1.5M)  big enough for libscadable + customer code + TLS
+#   scadable_data  (16K)   library scratch (log buffer, retry state)
+#
+# Total: ~3.2M — fits the 4M flash on plain ESP32 dev boards. ESP32-S3
+# boards typically ship with 8M+ so there's headroom.
+
+# Name,         Type, SubType,  Offset,   Size,    Flags
+nvs,            data, nvs,      0x9000,   0x6000,
+otadata,        data, ota,      0xf000,   0x2000,
+phy_init,       data, phy,      0x11000,  0x1000,
+ota_0,          app,  ota_0,    0x20000,  0x180000,
+ota_1,          app,  ota_1,    0x1A0000, 0x180000,
+scadable_data,  data, nvs,      0x320000, 0x4000,

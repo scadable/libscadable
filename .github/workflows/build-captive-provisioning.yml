@@ -1,8 +1,8 @@
-name: Build hello-world provisioning firmware
+name: Build captive-portal provisioning firmware
 
-# Builds the libscadable `examples/esp-idf-hello-world/` example for ESP32 and
-# ESP32-S3, then publishes the resulting flash bundle (bootloader + partition
-# table + app + manifest.json) to a GitHub Release on tag push.
+# Builds the libscadable `examples/esp-idf-captive-provisioning/` example for
+# ESP32 and ESP32-S3, then publishes the resulting flash bundle (bootloader +
+# partition table + app + manifest.json) to a GitHub Release on tag push.
 #
 # Why this workflow exists
 # ────────────────────────
@@ -29,32 +29,32 @@ name: Build hello-world provisioning firmware
 #   bins + manifest.json attached. The dashboard fetches from the release URL.
 #
 # To cut a new release:
-#   git tag provisioning-v0.1.0
-#   git push origin provisioning-v0.1.0
+#   git tag provisioning-v0.2.0
+#   git push origin provisioning-v0.2.0
 #
 # The dashboard's `PROVISIONING_MANIFEST_BASE_URL` should point at the
 # release's download URL, e.g.
-# https://github.com/scadable/libscadable/releases/download/provisioning-v0.1.0
+# https://github.com/scadable/libscadable/releases/download/provisioning-v0.2.0
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'examples/esp-idf-hello-world/**'
+      - 'examples/esp-idf-captive-provisioning/**'
       - 'src/**'
       - 'include/**'
       - 'CMakeLists.txt'
       - 'idf_component.yml'
-      - '.github/workflows/build-hello-world.yml'
+      - '.github/workflows/build-captive-provisioning.yml'
   push:
     branches: [main]
     paths:
-      - 'examples/esp-idf-hello-world/**'
+      - 'examples/esp-idf-captive-provisioning/**'
       - 'src/**'
       - 'include/**'
       - 'CMakeLists.txt'
       - 'idf_component.yml'
-      - '.github/workflows/build-hello-world.yml'
+      - '.github/workflows/build-captive-provisioning.yml'
     tags:
       - 'provisioning-v*'
 
@@ -85,7 +85,7 @@ jobs:
         with:
           esp_idf_version: v5.3
           target: ${{ matrix.chip }}
-          path: examples/esp-idf-hello-world
+          path: examples/esp-idf-captive-provisioning
 
       # Stage the three flash artifacts ESP-IDF produces (bootloader,
       # partition table, app) into dist/ with chip-prefixed names so they
@@ -94,13 +94,13 @@ jobs:
       - name: Stage flash artifacts
         run: |
           set -euo pipefail
-          BUILD_DIR="examples/esp-idf-hello-world/build"
+          BUILD_DIR="examples/esp-idf-captive-provisioning/build"
           OUT_DIR="dist"
           mkdir -p "$OUT_DIR"
           cp "$BUILD_DIR/bootloader/bootloader.bin"           "$OUT_DIR/${{ matrix.chip }}-bootloader.bin"
           cp "$BUILD_DIR/partition_table/partition-table.bin" "$OUT_DIR/${{ matrix.chip }}-partition-table.bin"
-          # The app binary is named after the project (esp-idf-hello-world.bin).
-          cp "$BUILD_DIR/esp-idf-hello-world.bin"             "$OUT_DIR/${{ matrix.chip }}-app.bin"
+          # The app binary is named after the project (esp-idf-captive-provisioning.bin).
+          cp "$BUILD_DIR/esp-idf-captive-provisioning.bin"    "$OUT_DIR/${{ matrix.chip }}-app.bin"
           ls -la "$OUT_DIR"
 
       - name: Upload chip artifacts
@@ -145,32 +145,35 @@ jobs:
           cp artifacts/firmware-esp32/*   release/
           cp artifacts/firmware-esp32s3/* release/
           # Strip the leading `provisioning-` from the tag name to get a
-          # clean version string (e.g. "v0.1.0").
+          # clean version string (e.g. "v0.2.0").
           VERSION="${GITHUB_REF_NAME#provisioning-}"
           # Offsets explained (decimal so JSON is portable):
-          #   ESP32 bootloader      0x1000  =  4096
-          #   ESP32-S3 bootloader   0x0     =     0   (S3 ROM loads bootloader from 0)
-          #   Partition table       0x8000  = 32768   (stock layout, both chips)
-          #   App                   0x10000 = 65536   (single-app stock layout)
+          #   ESP32 bootloader      0x1000   =   4096
+          #   ESP32-S3 bootloader   0x0      =      0   (S3 ROM loads bootloader from 0)
+          #   Partition table       0x8000   =  32768   (stock layout, both chips)
+          #   App                   0x20000  = 131072   (custom layout — first app slot
+          #                                              is ota_0 at 0x20000 because the
+          #                                              partition table includes nvs +
+          #                                              otadata + phy_init before it)
           cat > release/manifest.json <<JSON
           {
-            "name": "scadable-provisioning-hello-world",
+            "name": "scadable-provisioning-captive-portal",
             "version": "${VERSION}",
             "builds": [
               {
                 "chipFamily": "ESP32",
                 "parts": [
-                  { "path": "esp32-bootloader.bin",       "offset": 4096  },
-                  { "path": "esp32-partition-table.bin",  "offset": 32768 },
-                  { "path": "esp32-app.bin",              "offset": 65536 }
+                  { "path": "esp32-bootloader.bin",       "offset": 4096   },
+                  { "path": "esp32-partition-table.bin",  "offset": 32768  },
+                  { "path": "esp32-app.bin",              "offset": 131072 }
                 ]
               },
               {
                 "chipFamily": "ESP32-S3",
                 "parts": [
-                  { "path": "esp32s3-bootloader.bin",       "offset": 0     },
-                  { "path": "esp32s3-partition-table.bin",  "offset": 32768 },
-                  { "path": "esp32s3-app.bin",              "offset": 65536 }
+                  { "path": "esp32s3-bootloader.bin",       "offset": 0      },
+                  { "path": "esp32s3-partition-table.bin",  "offset": 32768  },
+                  { "path": "esp32s3-app.bin",              "offset": 131072 }
                 ]
               }
             ]
