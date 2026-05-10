@@ -187,7 +187,7 @@ static const char *hex_lower(unsigned char *bytes, size_t n, char *out, size_t o
 static void perform_ota(ota_manifest_t *m) {
     char *cert_pem = NULL;
     char *key_pem  = NULL;
-    if (scd_load_certs(&cert_pem, &key_pem) != SCADABLE_OK) {
+    if (scd_load_certs(&cert_pem, &key_pem, NULL) != SCADABLE_OK) {
         // CDN doesn't require client cert (it's public-read), but we may need
         // it for a redirect through edge — pass it anyway when present.
         cert_pem = NULL;

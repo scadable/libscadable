@@ -298,7 +298,7 @@ int scd_env_refresh_blocking(void) {
     // don't have to thread it through global state.
     char *cert_pem = NULL;
     char *key_pem  = NULL;
-    if (scd_load_certs(&cert_pem, &key_pem) != SCADABLE_OK) {
+    if (scd_load_certs(&cert_pem, &key_pem, NULL) != SCADABLE_OK) {
         ESP_LOGW(TAG, "no client cert; skipping env refresh");
         return -1;
     }
