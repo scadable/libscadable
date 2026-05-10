@@ -30,12 +30,12 @@
 
 static const char *TAG = "sta-mode";
 
-#define BIT_GOT_IP        (1 << 0)
-#define BIT_GAVE_UP       (1 << 1)
+#define BIT_GOT_IP                  (1 << 0)
+#define BIT_GAVE_UP                 (1 << 1)
 #define MAX_RETRIES_BEFORE_FALLBACK 5
 
 static EventGroupHandle_t s_wifi_events;
-static int s_retry_count = 0;
+static int s_retry_count  = 0;
 static bool s_ever_got_ip = false;
 
 // Erase NVS namespace `wifi` and reboot. Called when we conclude the
@@ -53,16 +53,16 @@ static void wipe_creds_and_reboot(void) {
     esp_restart();
 }
 
-static void wifi_event_handler(void *arg, esp_event_base_t base,
-                               int32_t id, void *data) {
-    (void)arg; (void)data;
+static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    (void)arg;
+    (void)data;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         if (!s_ever_got_ip) {
             s_retry_count++;
-            ESP_LOGW(TAG, "wifi disconnected (retry %d/%d)",
-                     s_retry_count, MAX_RETRIES_BEFORE_FALLBACK);
+            ESP_LOGW(TAG, "wifi disconnected (retry %d/%d)", s_retry_count,
+                     MAX_RETRIES_BEFORE_FALLBACK);
             if (s_retry_count >= MAX_RETRIES_BEFORE_FALLBACK) {
                 xEventGroupSetBits(s_wifi_events, BIT_GAVE_UP);
                 return;
@@ -90,10 +90,10 @@ void sta_mode_start(const char *ssid, const char *password) {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                                        &wifi_event_handler, NULL, NULL));
 
     wifi_config_t wifi_cfg = {0};
     strncpy((char *)wifi_cfg.sta.ssid, ssid, sizeof(wifi_cfg.sta.ssid) - 1);
@@ -106,8 +106,8 @@ void sta_mode_start(const char *ssid, const char *password) {
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // Wait for either GOT_IP (success) or GAVE_UP (5 retries → wipe + reboot).
-    EventBits_t bits = xEventGroupWaitBits(
-        s_wifi_events, BIT_GOT_IP | BIT_GAVE_UP, pdFALSE, pdFALSE, portMAX_DELAY);
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_events, BIT_GOT_IP | BIT_GAVE_UP, pdFALSE,
+                                           pdFALSE, portMAX_DELAY);
     if (bits & BIT_GAVE_UP) {
         wipe_creds_and_reboot();
         return;

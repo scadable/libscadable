@@ -38,7 +38,7 @@ static const char *TAG = "ap-mode";
 //   captive_portal_html_start  — pointer to first byte
 //   captive_portal_html_end    — pointer to one-past-last byte
 extern const uint8_t captive_portal_html_start[] asm("_binary_captive_portal_html_start");
-extern const uint8_t captive_portal_html_end[]   asm("_binary_captive_portal_html_end");
+extern const uint8_t captive_portal_html_end[] asm("_binary_captive_portal_html_end");
 
 // ─────────────────────────────────────────────────────────────────────────
 // URL-decoding for the form-encoded POST body. Decodes %xx + treats `+` as
@@ -54,25 +54,33 @@ static int hex_nibble(char c) {
 static void url_decode(char *s) {
     char *r = s, *w = s;
     while (*r) {
-        if (*r == '+') { *w++ = ' '; r++; }
-        else if (*r == '%' && r[1] && r[2]) {
+        if (*r == '+') {
+            *w++ = ' ';
+            r++;
+        } else if (*r == '%' && r[1] && r[2]) {
             int hi = hex_nibble(r[1]), lo = hex_nibble(r[2]);
-            if (hi >= 0 && lo >= 0) { *w++ = (char)((hi << 4) | lo); r += 3; }
-            else { *w++ = *r++; }
-        } else { *w++ = *r++; }
+            if (hi >= 0 && lo >= 0) {
+                *w++ = (char)((hi << 4) | lo);
+                r += 3;
+            } else {
+                *w++ = *r++;
+            }
+        } else {
+            *w++ = *r++;
+        }
     }
     *w = '\0';
 }
 
 // Pull `key=value&...` out of a form body. Caller-owned `out`.
 static bool form_field(const char *body, const char *key, char *out, size_t out_len) {
-    size_t klen = strlen(key);
+    size_t klen   = strlen(key);
     const char *p = body;
     while (*p) {
         if (strncmp(p, key, klen) == 0 && p[klen] == '=') {
             p += klen + 1;
             const char *end = strchr(p, '&');
-            size_t vlen = end ? (size_t)(end - p) : strlen(p);
+            size_t vlen     = end ? (size_t)(end - p) : strlen(p);
             if (vlen >= out_len) vlen = out_len - 1;
             memcpy(out, p, vlen);
             out[vlen] = '\0';
@@ -102,7 +110,7 @@ static esp_err_t serve_form(httpd_req_t *req) {
 // moving rooms.
 static esp_err_t scan_handler(httpd_req_t *req) {
     wifi_scan_config_t cfg = {0};
-    esp_err_t err = esp_wifi_scan_start(&cfg, true);
+    esp_err_t err          = esp_wifi_scan_start(&cfg, true);
     if (err != ESP_OK) {
         return httpd_resp_send(req, "[]", 2);
     }
@@ -121,8 +129,8 @@ static esp_err_t scan_handler(httpd_req_t *req) {
         // Escape only the basics — SSIDs with `"` or `\` are exotic but
         // possible. Worst case the JSON string breaks and the dropdown
         // falls back to the free-text input.
-        snprintf(buf, sizeof(buf), "%s{\"ssid\":\"%s\",\"rssi\":%d}",
-                 i == 0 ? "" : ",", (const char *)records[i].ssid, records[i].rssi);
+        snprintf(buf, sizeof(buf), "%s{\"ssid\":\"%s\",\"rssi\":%d}", i == 0 ? "" : ",",
+                 (const char *)records[i].ssid, records[i].rssi);
         httpd_resp_sendstr_chunk(req, buf);
     }
     httpd_resp_sendstr_chunk(req, "]");
@@ -141,7 +149,7 @@ static esp_err_t provision_handler(httpd_req_t *req) {
     }
     body[total] = '\0';
 
-    char ssid[33] = {0};
+    char ssid[33]     = {0};
     char password[65] = {0};
     if (!form_field(body, "ssid", ssid, sizeof(ssid)) || ssid[0] == '\0') {
         httpd_resp_set_status(req, "400 Bad Request");
@@ -163,9 +171,9 @@ static esp_err_t provision_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "provisioned ssid=%s — rebooting in 2s", ssid);
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_sendstr(req,
-        "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:24px'>"
-        "<h2>Saved</h2><p>The device is rebooting and will join your WiFi.</p>"
-        "</body></html>");
+                       "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:24px'>"
+                       "<h2>Saved</h2><p>The device is rebooting and will join your WiFi.</p>"
+                       "</body></html>");
 
     // Defer restart so the response actually flushes to the browser.
     vTaskDelay(pdMS_TO_TICKS(2000));
@@ -174,25 +182,26 @@ static esp_err_t provision_handler(httpd_req_t *req) {
 }
 
 static httpd_handle_t http_start(void) {
-    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    httpd_config_t cfg   = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
     // We register fewer than the default URI count, but several captive
     // probes from each OS. Bump the slot count just in case.
-    cfg.max_uri_handlers = 12;
+    cfg.max_uri_handlers  = 12;
     httpd_handle_t server = NULL;
     if (httpd_start(&server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start failed");
         return NULL;
     }
-    httpd_uri_t form_uri  = { .uri = "/",                   .method = HTTP_GET,  .handler = serve_form };
-    httpd_uri_t scan_uri  = { .uri = "/scan",               .method = HTTP_GET,  .handler = scan_handler };
-    httpd_uri_t prov_uri  = { .uri = "/provision",          .method = HTTP_POST, .handler = provision_handler };
+    httpd_uri_t form_uri = {.uri = "/", .method = HTTP_GET, .handler = serve_form};
+    httpd_uri_t scan_uri = {.uri = "/scan", .method = HTTP_GET, .handler = scan_handler};
+    httpd_uri_t prov_uri = {.uri = "/provision", .method = HTTP_POST, .handler = provision_handler};
     // OS captive-portal probe URLs. All of them get the same form HTML
     // so any probe surfaces the "Sign in to WiFi" banner on the device.
-    httpd_uri_t probe_g   = { .uri = "/generate_204",       .method = HTTP_GET,  .handler = serve_form };
-    httpd_uri_t probe_a   = { .uri = "/hotspot-detect.html",.method = HTTP_GET,  .handler = serve_form };
-    httpd_uri_t probe_w   = { .uri = "/connecttest.txt",    .method = HTTP_GET,  .handler = serve_form };
-    httpd_uri_t probe_n   = { .uri = "/ncsi.txt",           .method = HTTP_GET,  .handler = serve_form };
+    httpd_uri_t probe_g = {.uri = "/generate_204", .method = HTTP_GET, .handler = serve_form};
+    httpd_uri_t probe_a = {
+        .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = serve_form};
+    httpd_uri_t probe_w = {.uri = "/connecttest.txt", .method = HTTP_GET, .handler = serve_form};
+    httpd_uri_t probe_n = {.uri = "/ncsi.txt", .method = HTTP_GET, .handler = serve_form};
     httpd_register_uri_handler(server, &form_uri);
     httpd_register_uri_handler(server, &scan_uri);
     httpd_register_uri_handler(server, &prov_uri);
@@ -210,20 +219,27 @@ static httpd_handle_t http_start(void) {
 // library would balloon the firmware.
 // ─────────────────────────────────────────────────────────────────────────
 
-#define DNS_PORT 53
+#define DNS_PORT    53
 #define DNS_MAX_LEN 512
 
 static void dns_task(void *arg) {
     (void)arg;
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) { ESP_LOGE(TAG, "dns socket failed"); vTaskDelete(NULL); return; }
+    if (sock < 0) {
+        ESP_LOGE(TAG, "dns socket failed");
+        vTaskDelete(NULL);
+        return;
+    }
     struct sockaddr_in bind_addr = {
-        .sin_family = AF_INET, .sin_port = htons(DNS_PORT),
+        .sin_family      = AF_INET,
+        .sin_port        = htons(DNS_PORT),
         .sin_addr.s_addr = htonl(INADDR_ANY),
     };
     if (bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
         ESP_LOGE(TAG, "dns bind failed: errno=%d", errno);
-        close(sock); vTaskDelete(NULL); return;
+        close(sock);
+        vTaskDelete(NULL);
+        return;
     }
     ESP_LOGI(TAG, "captive DNS listening on UDP/53");
 
@@ -231,16 +247,20 @@ static void dns_task(void *arg) {
     while (true) {
         struct sockaddr_in src;
         socklen_t src_len = sizeof(src);
-        int n = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&src, &src_len);
+        int n             = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&src, &src_len);
         if (n < 12) continue;  // smaller than DNS header
 
         // Set QR=1 (response), AA=1 (authoritative), RA=1 (recursion avail).
         buf[2] = 0x84;  // QR=1, AA=1, OP=0
         buf[3] = 0x80;  // RA=1
         // ANCOUNT = 1, copy QDCOUNT into ANCOUNT slot.
-        buf[6] = 0; buf[7] = 1;
+        buf[6] = 0;
+        buf[7] = 1;
         // NSCOUNT, ARCOUNT zeroed.
-        buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0;
+        buf[8]  = 0;
+        buf[9]  = 0;
+        buf[10] = 0;
+        buf[11] = 0;
 
         // Walk the question section to find its end (so we can append the
         // answer). Question = QNAME (length-prefixed labels, terminated by
@@ -250,18 +270,28 @@ static void dns_task(void *arg) {
             p += buf[p] + 1;
             if (p >= DNS_MAX_LEN) break;
         }
-        p += 1 + 4;  // skip null terminator + QTYPE + QCLASS
+        p += 1 + 4;                          // skip null terminator + QTYPE + QCLASS
         if (p + 16 > DNS_MAX_LEN) continue;  // no room for answer
 
         // Append the answer record. NAME = 0xC00C (compression pointer to
         // the question's QNAME), TYPE=A, CLASS=IN, TTL=60, RDLENGTH=4,
         // RDATA = 192.168.4.1.
-        buf[p++] = 0xC0; buf[p++] = 0x0C;
-        buf[p++] = 0x00; buf[p++] = 0x01;  // TYPE A
-        buf[p++] = 0x00; buf[p++] = 0x01;  // CLASS IN
-        buf[p++] = 0x00; buf[p++] = 0x00; buf[p++] = 0x00; buf[p++] = 0x3C;  // TTL 60
-        buf[p++] = 0x00; buf[p++] = 0x04;  // RDLENGTH 4
-        buf[p++] = 192; buf[p++] = 168; buf[p++] = 4; buf[p++] = 1;
+        buf[p++] = 0xC0;
+        buf[p++] = 0x0C;
+        buf[p++] = 0x00;
+        buf[p++] = 0x01;  // TYPE A
+        buf[p++] = 0x00;
+        buf[p++] = 0x01;  // CLASS IN
+        buf[p++] = 0x00;
+        buf[p++] = 0x00;
+        buf[p++] = 0x00;
+        buf[p++] = 0x3C;  // TTL 60
+        buf[p++] = 0x00;
+        buf[p++] = 0x04;  // RDLENGTH 4
+        buf[p++] = 192;
+        buf[p++] = 168;
+        buf[p++] = 4;
+        buf[p++] = 1;
 
         sendto(sock, buf, p, 0, (struct sockaddr *)&src, src_len);
     }
@@ -285,13 +315,13 @@ void ap_mode_start(void) {
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     wifi_config_t wifi_cfg = {0};
-    snprintf((char *)wifi_cfg.ap.ssid, sizeof(wifi_cfg.ap.ssid),
-             "scadable-%02X%02X", mac[4], mac[5]);
-    wifi_cfg.ap.ssid_len = strlen((const char *)wifi_cfg.ap.ssid);
-    wifi_cfg.ap.channel = 1;
+    snprintf((char *)wifi_cfg.ap.ssid, sizeof(wifi_cfg.ap.ssid), "scadable-%02X%02X", mac[4],
+             mac[5]);
+    wifi_cfg.ap.ssid_len       = strlen((const char *)wifi_cfg.ap.ssid);
+    wifi_cfg.ap.channel        = 1;
     wifi_cfg.ap.max_connection = 4;
-    wifi_cfg.ap.authmode = WIFI_AUTH_OPEN;  // open — captive portals
-                                            // shouldn't gate on WPA.
+    wifi_cfg.ap.authmode       = WIFI_AUTH_OPEN;  // open — captive portals
+                                                  // shouldn't gate on WPA.
     wifi_cfg.ap.beacon_interval = 100;
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -307,5 +337,7 @@ void ap_mode_start(void) {
     xTaskCreate(dns_task, "dns_task", 4096, NULL, 5, NULL);
 
     // Block forever — only exit is provision_handler -> esp_restart().
-    while (true) { vTaskDelay(pdMS_TO_TICKS(10000)); }
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
 }

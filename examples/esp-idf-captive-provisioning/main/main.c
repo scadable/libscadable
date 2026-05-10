@@ -33,7 +33,7 @@ static const char *TAG = "captive-provisioning";
 static bool nvs_get_wifi_str(const char *key, char *out, size_t out_len) {
     nvs_handle_t h;
     if (nvs_open("wifi", NVS_READONLY, &h) != ESP_OK) return false;
-    size_t len = out_len;
+    size_t len    = out_len;
     esp_err_t err = nvs_get_str(h, key, out, &len);
     nvs_close(h);
     if (err != ESP_OK) return false;
@@ -56,9 +56,9 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    char ssid[33] = {0};
-    char password[65] = {0};
-    bool have_ssid = nvs_get_wifi_str("ssid", ssid, sizeof(ssid));
+    char ssid[33]      = {0};
+    char password[65]  = {0};
+    bool have_ssid     = nvs_get_wifi_str("ssid", ssid, sizeof(ssid));
     bool have_password = nvs_get_wifi_str("password", password, sizeof(password));
 
     if (have_ssid && have_password) {
