@@ -5,6 +5,30 @@ All notable changes to libscadable will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-10
+
+Broker verification migrated to the public-trust Mozilla root bundle. The
+SCADABLE backbone now fronts `io.scadable.com:8883` with a Let's Encrypt
+leaf, so chips no longer need a per-namespace CA flashed into NVS.
+
+### Changed
+- `scadable_connect()` always passes `crt_bundle_attach = esp_crt_bundle_attach`
+  to the esp-mqtt config. The previous "use ca_pem if present, else fall back
+  to the bundle" two-arm path is gone.
+- `scd_load_certs()` lost its third `ca_pem_out` parameter — only device cert
+  + key are read from NVS now.
+- The `g.ca_pem` global and its NVS read in `scadable_init()` were removed.
+
+### Migration
+- Customers do not need to do anything: the function signature change is
+  internal (header `internal.h`, not the public `scadable.h`).
+- Provisioning flows that wrote `scadable_certs/ca_cert` to NVS keep working;
+  the key is now ignored. Old chips on the field continue to verify against
+  the same Mozilla bundle (it's been baked into mbedTLS via
+  `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` since the 0.1.x line).
+- Requires the dual-cert infra change in infrastructure-platform PR #24 +
+  service-mqtt PR #8 to be live in production.
+
 ## [0.1.0] — 2026-05-08
 
 First non-stub release. The previous v0.0.x cuts shipped the public header +
