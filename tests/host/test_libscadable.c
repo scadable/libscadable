@@ -206,6 +206,106 @@ static void test_diagnostics(void) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Diagnostics v0.3.0 — typed surface, cmd dispatch
+// ────────────────────────────────────────────────────────────────────────────
+
+static int diag2_calls;
+static scadable_diag_result_t diag2_pass(scadable_diag_ctx_t *ctx) {
+    DIAG_LOG(ctx, "running");
+    diag2_calls++;
+    scadable_diag_result_t r = DIAG_PASS("ok=%d", 1);
+    snprintf(r.details, sizeof(r.details), "{\"checks\":42}");
+    return r;
+}
+static scadable_diag_result_t diag2_fail(scadable_diag_ctx_t *ctx) {
+    (void)ctx;
+    diag2_calls++;
+    return DIAG_FAIL("nope");
+}
+
+extern void scd_cmd_dispatch(const char *cmd_type, const char *body, size_t len);
+
+static void test_diagnostics_v3(void) {
+    printf("\n[diagnostics_v3]\n");
+
+    scadable_err_t e = scadable_register_diagnostic("d_pass", "function", diag2_pass);
+    CHECK(e == SCADABLE_OK, "register typed pass diagnostic");
+    e = scadable_register_diagnostic("d_fail", "function", diag2_fail);
+    CHECK(e == SCADABLE_OK, "register typed fail diagnostic");
+
+    // Future v1.1 type — must be accepted into the registry but yield
+    // TYPE_NOT_SUPPORTED at run time.
+    e = scadable_register_diagnostic("d_future", "api_call", NULL);
+    CHECK(e == SCADABLE_OK, "register unknown-type diagnostic accepted (forward-compat)");
+
+    e = scadable_register_diagnostic(NULL, "function", diag2_pass);
+    CHECK(e == SCADABLE_ERR_INVALID_ARG, "register NULL id → INVALID_ARG");
+    e = scadable_register_diagnostic("d_no_type", NULL, diag2_pass);
+    CHECK(e == SCADABLE_ERR_INVALID_ARG, "register NULL type → INVALID_ARG");
+
+    // Make-helper macros set message correctly.
+    scadable_diag_result_t r = DIAG_FAIL("err=%s", "x");
+    CHECK(r.status == TEST_RESULT_FAIL, "DIAG_FAIL status");
+    CHECK(strstr(r.message, "err=x") != NULL, "DIAG_FAIL message format");
+    CHECK(r.details[0] == '\0', "DIAG_FAIL details default empty");
+
+    r = DIAG_TIMEOUT("late");
+    CHECK(r.status == TEST_RESULT_TIMEOUT, "DIAG_TIMEOUT status");
+    r = DIAG_ERROR("boom");
+    CHECK(r.status == TEST_RESULT_ERROR, "DIAG_ERROR status");
+
+    // Single-diagnostic runner for known id (publish path will silently
+    // drop in host stub since there's no MQTT, but the lookup + invoke
+    // must succeed and bump the call counter).
+    int prev_calls = diag2_calls;
+    e              = scadable_run_diagnostic("d_pass", "01HXYZRUNID0000");
+    CHECK(e == SCADABLE_OK, "run_diagnostic on known id returns OK");
+    CHECK(diag2_calls == prev_calls + 1, "run_diagnostic invokes the fn");
+
+    // Unknown id → INVALID_ARG (and an ERROR envelope is published — we
+    // can't observe it in host stub but the call shouldn't crash).
+    e = scadable_run_diagnostic("d_does_not_exist", "01HXYZRUNID0001");
+    CHECK(e == SCADABLE_ERR_INVALID_ARG, "run_diagnostic on unknown id returns INVALID_ARG");
+
+    // Type-not-supported diagnostic (registered with type=api_call). Returns
+    // OK from the host's perspective (the chip handled it); the result
+    // status is TYPE_NOT_SUPPORTED but we can't observe the envelope here.
+    e = scadable_run_diagnostic("d_future", "01HXYZRUNID0002");
+    CHECK(e == SCADABLE_OK,
+          "run_diagnostic on future-type returns OK (publishes TYPE_NOT_SUPPORTED)");
+
+    // run_all_diagnostics: invokes every registered fn (the future-type one
+    // doesn't bump diag2_calls because its fn is NULL).
+    int before = diag2_calls;
+    e          = scadable_run_all_diagnostics("01HXYZRUNID0003");
+    CHECK(e == SCADABLE_OK, "run_all_diagnostics returns OK");
+    CHECK(diag2_calls >= before + 2, "run_all invokes both function-typed diagnostics");
+
+    // Cmd dispatch — JSON parsing.
+    int dispatch_before = diag2_calls;
+    const char *body1   = "{\"run_id\":\"01HXYZRUNID0004\",\"id\":\"d_pass\"}";
+    scd_cmd_dispatch("diagnostic.run", body1, strlen(body1));
+    CHECK(diag2_calls == dispatch_before + 1, "cmd dispatch (diagnostic.run) invokes fn");
+
+    // Missing run_id field — must NOT invoke.
+    int missing_before = diag2_calls;
+    const char *body2  = "{\"id\":\"d_pass\"}";
+    scd_cmd_dispatch("diagnostic.run", body2, strlen(body2));
+    CHECK(diag2_calls == missing_before, "cmd dispatch with missing run_id is dropped");
+
+    // Unknown cmd type — must NOT invoke (forward-compat, newer cloud / older chip).
+    int unk_before = diag2_calls;
+    scd_cmd_dispatch("totally.unknown.command", body1, strlen(body1));
+    CHECK(diag2_calls == unk_before, "unknown cmd type silently dropped");
+
+    // diagnostic.run_all path.
+    int rall_before   = diag2_calls;
+    const char *body3 = "{\"run_id\":\"01HXYZRUNID0005\"}";
+    scd_cmd_dispatch("diagnostic.run_all", body3, strlen(body3));
+    CHECK(diag2_calls > rall_before, "cmd dispatch (diagnostic.run_all) invokes fns");
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Strerror coverage
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -223,6 +323,7 @@ int main(void) {
     test_logging();
     test_env();
     test_diagnostics();
+    test_diagnostics_v3();
     test_strerror();
 
     printf("\n%d passed, %d failed\n", passes, fails);

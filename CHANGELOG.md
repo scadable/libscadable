@@ -5,6 +5,76 @@ All notable changes to libscadable will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-05-11
+
+Cloud-triggered diagnostics + typed diagnostic system. Foundation for the
+post-OTA verify framework that ships in service-app a few days behind this
+library bump (see `2026-05-11-diagnostic-framework-design.md`).
+
+### Added
+
+- **Typed diagnostic surface.** New `scadable_diag_result_t` carries
+  `status`, `duration_ms`, a 256-byte `message`, a 1 KiB `details` buffer
+  (free-form in v1; structured per-type in v1.1+), and an optional
+  `output_log` pointer reserved for v1.1 streaming.
+- **`scadable_register_diagnostic(id, type_str, fn)`** — typed registration
+  used by the codegen-emitted `scadable_init_diagnostics()`. Accepts ANY
+  type string into the registry (so cloud-side dashboards see the
+  diagnostic exists), but only invokes the fn when `type_str == "function"`;
+  other types yield `TEST_RESULT_TYPE_NOT_SUPPORTED` at run time. v1.1
+  adds `api_call`, `sensor_read`, `mqtt_check`, etc.
+- **`SCD_DIAG(id, ctx)`** macro + `DIAG_PASS` / `DIAG_FAIL` /
+  `DIAG_PASS_WITH_WARN` / `DIAG_TIMEOUT` / `DIAG_ERROR` / `DIAG_LOG` —
+  the v0.3.0 typed-diagnostic authoring API. The legacy `SCADABLE_TEST` /
+  `TEST_PASS` etc. surface stays compile-compatible for v0.1/0.2 customers.
+- **`scadable_run_diagnostic(id, run_id)` + `scadable_run_all_diagnostics(run_id)`**
+  — single-test and full-catalog runners that publish results on
+  `{ns}/{gw}/diagnostics/result` using envelope v2. `run_id` is the
+  cloud-minted ULID/UUID echoed back so the cloud aggregator can correlate.
+- **MQTT `cmd/+` dispatch** in `lifecycle.c`. The library now routes
+  `{ns}/{gw}/cmd/diagnostic.run` and `{ns}/{gw}/cmd/diagnostic.run_all`
+  to the corresponding runners. Unknown cmd types are logged at DEBUG
+  and dropped (forward-compatible — newer cloud, older chip).
+- **Three new status codes.** `TEST_RESULT_TIMEOUT`, `TEST_RESULT_ERROR`,
+  `TEST_RESULT_TYPE_NOT_SUPPORTED`. Cover the "library couldn't run the
+  fn" cases that the v0.1 enum lumped into FAIL.
+- **Result envelope v2.** Adds top-level `run_id` + `triggered_by`
+  fields and a per-result `id` + `type` field. The cloud accepts both v1
+  (legacy `local_pre_ota` path; field name `name` not `id`) and v2.
+
+### Changed
+
+- `scd_topic_is_cmd(topic, &cmd_type_out)` helper added in `lifecycle.c`;
+  the MQTT_EVENT_DATA branch in the same file now calls it after the OTA
+  notify and env_change checks.
+
+### Compatibility
+
+- **No breaking changes for existing customer code.** v0.1/v0.2 firmware
+  using `SCADABLE_TEST` / `TEST_PASS` / `TEST_FAIL` continues to compile
+  and run unchanged. The pre-OTA local diagnostic gate continues to
+  publish envelope v1 with `triggered_by=local_pre_ota` (cloud accepts
+  both envelope versions).
+- **Schema migration window.** `.scadable/diagnostics/*.yaml` keeps the
+  `test:` field accepted as an alias for `id:` and `display_name:`
+  accepted as an alias for `name:` for one release. v1.1 drops the old
+  names; the codegen will emit a deprecation warning on the old names
+  starting in v0.4.0.
+- **Codegen forward-compat.** When the cloud ingests a manifest with a
+  type the firmware doesn't support, it stores the row with
+  `firmware_supported=false`; cloud trigger yields immediate
+  `TYPE_NOT_SUPPORTED`. No firmware crash.
+
+### Migration
+
+- Customers do not need to do anything to keep working; existing
+  diagnostics keep firing with the legacy envelope and the legacy local
+  pre-OTA gate.
+- To opt into the cloud-triggered + post-OTA verify story, customers
+  need to (a) bump libscadable to v0.3.0 in `idf_component.yml`, and
+  (b) ensure their `.scadable/diagnostics/*.yaml` declare a `type:`
+  field (defaults to `function` if omitted, for migration).
+
 ## [0.2.0] — 2026-05-10
 
 Broker verification migrated to the public-trust Mozilla root bundle. The
