@@ -77,6 +77,19 @@ int scd_topic_ota_progress(char *out, size_t out_size);
 bool scd_topic_is_ota_notify(const char *topic);
 bool scd_topic_is_env_change(const char *topic);
 
+// v0.3.0: cmd-topic dispatch.
+//
+// Topic shape for downlink commands is `{ns}/{gw}/cmd/{type}`; this helper
+// returns true if the topic matches that shape and writes a heap-allocated
+// type string to *cmd_type_out (caller frees). Returns false (and leaves
+// *cmd_type_out untouched) for any non-cmd topic.
+bool scd_topic_is_cmd(const char *topic, char **cmd_type_out);
+
+// Dispatch a cmd payload to the right handler based on cmd_type. Currently
+// recognized: "diagnostic.run", "diagnostic.run_all". Unknown types are
+// logged at DEBUG and dropped (forward-compatible — newer cloud, older chip).
+void scd_cmd_dispatch(const char *cmd_type, const char *body, size_t len);
+
 // ─── Logging subsystem ──────────────────────────────────────────────────────
 //
 // Customer-facing API is the SCADABLE_LOG_* macros in <scadable.h>. The

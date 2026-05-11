@@ -258,11 +258,24 @@ void scadable_log_(scadable_log_level_t lvl, const char *file, int line, const c
     scadable_log_(SCADABLE_LOG_ERROR_LEVEL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 
 // ─── Diagnostics ────────────────────────────────────────────────
+//
+// v0.3.0 introduces a typed diagnostic system. The legacy SCADABLE_TEST /
+// TEST_PASS / TEST_FAIL surface (below) is kept as compile-compatible
+// helpers for v0.1/v0.2 customers; new code SHOULD use SCD_DIAG /
+// DIAG_PASS / DIAG_FAIL with the typed scadable_diag_result_t struct.
+//
+// The on-the-wire result envelope is also extended (v2) to carry a
+// per-trigger run_id + a "type" hint so the cloud can present the right
+// dashboard surface per diagnostic type. Old chips publishing the v1
+// envelope continue to be parsed (cloud accepts both).
 
 typedef enum {
-    TEST_RESULT_PASS           = 0,
-    TEST_RESULT_PASS_WITH_WARN = 1,
-    TEST_RESULT_FAIL           = 2,
+    TEST_RESULT_PASS               = 0,
+    TEST_RESULT_PASS_WITH_WARN     = 1,
+    TEST_RESULT_FAIL               = 2,
+    TEST_RESULT_TIMEOUT            = 3,  // v0.3.0: library aborted the fn after timeout_secs
+    TEST_RESULT_ERROR              = 4,  // v0.3.0: library couldn't run the fn (not registered, panic, etc.)
+    TEST_RESULT_TYPE_NOT_SUPPORTED = 5,  // v0.3.0: cloud asked for a type this firmware can't run
 } scadable_test_status_t;
 
 typedef struct {
@@ -310,8 +323,107 @@ scadable_test_result_t scadable_test_make_(scadable_test_status_t status, const 
 // scadable_init_diagnostics() is emitted by the build pipeline from
 // .scadable/diagnostics/*.yaml. Customer calls it once after scadable_init().
 // If you're not using the SCADABLE build pipeline (standalone build),
-// register tests manually with scadable_register_test_().
+// register tests manually with scadable_register_test_() or, for the v0.3.0
+// typed surface, scadable_register_diagnostic().
 extern void scadable_init_diagnostics(void);
+
+// ─── Diagnostics v0.3.0 — typed diagnostic surface ──────────────
+//
+// Goal: extensible across diagnostic types (function today; api_call,
+// sensor_read, mqtt_check etc. tomorrow) without breaking the wire format
+// or forcing a customer rewrite per type.
+//
+// A diagnostic is identified by a stable string id (matches the YAML `id:`
+// field). The chip implements only the type(s) it knows about; cloud-side
+// trigger for an unknown type yields TEST_RESULT_TYPE_NOT_SUPPORTED rather
+// than a crash. v1 only defines the "function" type; v1.1+ adds the rest.
+
+#define SCD_DIAG_DETAILS_CAP 1024
+
+/**
+ * Typed diagnostic result. Replaces (additively) scadable_test_result_t for
+ * v0.3.0+ diagnostics. The library auto-fills `duration_ms`; the customer
+ * fills `status` and (optionally) `message`/`details` via the DIAG_PASS /
+ * DIAG_FAIL / DIAG_PASS_WITH_WARN macros below or by hand.
+ *
+ * `details` is a free-form 1 KiB buffer. v1 customers use it however they
+ * like (additional log lines, JSON fragments, etc). Future v1.1+ types
+ * document a structured shape per type — e.g. an `api_call` type might
+ * write `{"status_code":200,"body_len":4123}` here.
+ *
+ * `output_log` is a borrowed pointer to a streaming-log buffer. v1 chips
+ * leave this NULL (the per-call ctx log_buf is published as the v1
+ * "log" envelope field); v1.1+ uses it for streaming output.
+ */
+typedef struct {
+    scadable_test_status_t status;
+    uint32_t duration_ms;                        // library auto-measures
+    char message[256];                           // short summary
+    char details[SCD_DIAG_DETAILS_CAP];          // free-form, optional
+    const char *output_log;                      // NULL in v1; reserved for streaming
+} scadable_diag_result_t;
+
+typedef struct scadable_diag_ctx scadable_diag_ctx_t;
+
+/**
+ * Typed diagnostic handler. Mirrors scadable_test_fn_t but takes/returns the
+ * v0.3.0 typed shapes.
+ */
+typedef scadable_diag_result_t (*scadable_diag_fn_t)(scadable_diag_ctx_t *ctx);
+
+/**
+ * Register a diagnostic with explicit type. v1 only accepts type_str ==
+ * "function"; passing any other value returns SCADABLE_ERR_INVALID_ARG.
+ *
+ * Codegen-emitted scadable_init_diagnostics() calls this once per
+ * YAML-declared diagnostic at boot. Manual customers can call it directly.
+ */
+scadable_err_t
+scadable_register_diagnostic(const char *id, const char *type_str, scadable_diag_fn_t fn);
+
+/**
+ * Mid-diagnostic progress logging. Same as TEST_LOG / scadable_test_log_
+ * but for the typed ctx.
+ */
+void scadable_diag_log_(scadable_diag_ctx_t *ctx, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+
+#define SCD_DIAG(id, ctx_param) scadable_diag_result_t id(scadable_diag_ctx_t *ctx_param)
+#define DIAG_LOG(ctx, fmt, ...) scadable_diag_log_(ctx, fmt, ##__VA_ARGS__)
+
+scadable_diag_result_t scadable_diag_make_(scadable_test_status_t status, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+
+#define DIAG_PASS(...)           scadable_diag_make_(TEST_RESULT_PASS, __VA_ARGS__)
+#define DIAG_PASS_WITH_WARN(...) scadable_diag_make_(TEST_RESULT_PASS_WITH_WARN, __VA_ARGS__)
+#define DIAG_FAIL(...)           scadable_diag_make_(TEST_RESULT_FAIL, __VA_ARGS__)
+#define DIAG_TIMEOUT(...)        scadable_diag_make_(TEST_RESULT_TIMEOUT, __VA_ARGS__)
+#define DIAG_ERROR(...)          scadable_diag_make_(TEST_RESULT_ERROR, __VA_ARGS__)
+
+/**
+ * Run a single registered diagnostic by id and publish its result on
+ * `{ns}/{gw}/diagnostics/result` with envelope v2 (run_id + triggered_by
+ * fields). Used by the cloud-triggered manual-run path.
+ *
+ * `run_id` is the cloud-minted ULID/UUID string; the chip returns it
+ * verbatim in the result envelope so the cloud can correlate.
+ *
+ * Returns SCADABLE_OK if the diagnostic was found and scheduled.
+ * Returns SCADABLE_ERR_INVALID_ARG if id is unknown — the chip will also
+ * publish a TEST_RESULT_ERROR envelope so the cloud sees the failure.
+ */
+scadable_err_t scadable_run_diagnostic(const char *id, const char *run_id);
+
+/**
+ * Run every registered diagnostic. Used for the manual "Run all" button
+ * and for the OTA-verify flow (cloud fans out one cmd per `run_after_ota`
+ * diagnostic, but the chip's helper here is also useful for offline
+ * customer-driven sweeps).
+ *
+ * All resulting envelopes share the same `run_id` so the cloud aggregator
+ * can match them up.
+ */
+scadable_err_t scadable_run_all_diagnostics(const char *run_id);
 
 // ─── Env vars + secrets (delivered at runtime via mTLS HTTPS pull) ───
 

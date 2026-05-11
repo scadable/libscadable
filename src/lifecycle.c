@@ -244,6 +244,34 @@ bool scd_topic_is_env_change(const char *topic) {
     return strcmp(topic, buf) == 0;
 }
 
+// v0.3.0: matches `{ns}/{gw}/cmd/{type}` and extracts {type}.
+//
+// Implementation notes: we build the prefix `{ns}/{gw}/cmd/` once and
+// strncmp; the suffix is the cmd type. We DO accept multi-segment cmd
+// types (e.g. `cmd/diagnostic.run`) because the wildcard subscription
+// uses `+` which binds to a single segment — diagnostic.run is one
+// segment containing a dot, not two segments separated by `/`.
+bool scd_topic_is_cmd(const char *topic, char **cmd_type_out) {
+    if (!topic) return false;
+    const char *ns = scd_namespace_id();
+    const char *gw = scd_gateway_id();
+    if (!ns || !gw) return false;
+    char prefix[160];
+    int n = snprintf(prefix, sizeof(prefix), "%s/%s/cmd/", ns, gw);
+    if (n <= 0 || (size_t)n >= sizeof(prefix)) return false;
+    if (strncmp(topic, prefix, (size_t)n) != 0) return false;
+    const char *type = topic + n;
+    if (*type == '\0') return false;
+    // Reject multi-segment suffixes (cloud convention is single-segment cmd
+    // types separated with `.`, not `/`).
+    if (strchr(type, '/') != NULL) return false;
+    if (cmd_type_out) {
+        *cmd_type_out = strdup(type);
+        if (!*cmd_type_out) return false;
+    }
+    return true;
+}
+
 // ─── NVS wrappers ───────────────────────────────────────────────────────────
 
 #ifdef ESP_PLATFORM
@@ -431,12 +459,17 @@ on_mqtt_event(void *handler_args, esp_event_base_t base, int32_t event_id, void 
         memcpy(body, e->data, (size_t)e->data_len);
         body[e->data_len] = '\0';
 
+        char *cmd_type = NULL;
         if (scd_topic_is_ota_notify(topic)) {
             scd_ota_handle_notify(body, (size_t)e->data_len);
         } else if (scd_topic_is_env_change(topic)) {
             // Cloud nudged us — re-fetch the env table and emit
             // EVT_ENV_CHANGED for each key the customer subscribed to.
             scd_env_refresh_blocking();
+        } else if (scd_topic_is_cmd(topic, &cmd_type)) {
+            // v0.3.0: cmd-topic dispatch (diagnostic.run, diagnostic.run_all, ...).
+            scd_cmd_dispatch(cmd_type, body, (size_t)e->data_len);
+            free(cmd_type);
         } else {
             ESP_LOGD(TAG, "unhandled topic: %s", topic);
         }
