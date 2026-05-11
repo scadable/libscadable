@@ -270,11 +270,11 @@ void scadable_log_(scadable_log_level_t lvl, const char *file, int line, const c
 // envelope continue to be parsed (cloud accepts both).
 
 typedef enum {
-    TEST_RESULT_PASS               = 0,
-    TEST_RESULT_PASS_WITH_WARN     = 1,
-    TEST_RESULT_FAIL               = 2,
-    TEST_RESULT_TIMEOUT            = 3,  // v0.3.0: library aborted the fn after timeout_secs
-    TEST_RESULT_ERROR              = 4,  // v0.3.0: library couldn't run the fn (not registered, panic, etc.)
+    TEST_RESULT_PASS           = 0,
+    TEST_RESULT_PASS_WITH_WARN = 1,
+    TEST_RESULT_FAIL           = 2,
+    TEST_RESULT_TIMEOUT        = 3,  // v0.3.0: library aborted the fn after timeout_secs
+    TEST_RESULT_ERROR = 4,  // v0.3.0: library couldn't run the fn (not registered, panic, etc.)
     TEST_RESULT_TYPE_NOT_SUPPORTED = 5,  // v0.3.0: cloud asked for a type this firmware can't run
 } scadable_test_status_t;
 
@@ -357,10 +357,10 @@ extern void scadable_init_diagnostics(void);
  */
 typedef struct {
     scadable_test_status_t status;
-    uint32_t duration_ms;                        // library auto-measures
-    char message[256];                           // short summary
-    char details[SCD_DIAG_DETAILS_CAP];          // free-form, optional
-    const char *output_log;                      // NULL in v1; reserved for streaming
+    uint32_t duration_ms;                // library auto-measures
+    char message[256];                   // short summary
+    char details[SCD_DIAG_DETAILS_CAP];  // free-form, optional
+    const char *output_log;              // NULL in v1; reserved for streaming
 } scadable_diag_result_t;
 
 typedef struct scadable_diag_ctx scadable_diag_ctx_t;

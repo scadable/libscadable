@@ -267,9 +267,9 @@ __attribute__((weak)) void scadable_init_diagnostics(void) {
 //   5. Result is published as envelope v2 on the existing
 //      `{ns}/{gw}/diagnostics/result` topic.
 
-#define MAX_DIAGS         64
-#define DIAG_LOG_CAP      512
-#define DIAG_RUN_ID_CAP   64
+#define MAX_DIAGS       64
+#define DIAG_LOG_CAP    512
+#define DIAG_RUN_ID_CAP 64
 
 struct scadable_diag_ctx {
     const char *id;
@@ -281,7 +281,7 @@ static struct {
     struct {
         const char *id;
         const char *type_str;
-        scadable_diag_fn_t fn;       // NULL means type-not-supported on this fw
+        scadable_diag_fn_t fn;  // NULL means type-not-supported on this fw
     } items[MAX_DIAGS];
     int count;
 #ifdef ESP_PLATFORM
@@ -291,13 +291,20 @@ static struct {
 
 static const char *v3_status_str(scadable_test_status_t s) {
     switch (s) {
-    case TEST_RESULT_PASS:               return "pass";
-    case TEST_RESULT_PASS_WITH_WARN:     return "pass_with_warn";
-    case TEST_RESULT_FAIL:               return "fail";
-    case TEST_RESULT_TIMEOUT:            return "timeout";
-    case TEST_RESULT_ERROR:              return "error";
-    case TEST_RESULT_TYPE_NOT_SUPPORTED: return "type_not_supported";
-    default:                             return "unknown";
+    case TEST_RESULT_PASS:
+        return "pass";
+    case TEST_RESULT_PASS_WITH_WARN:
+        return "pass_with_warn";
+    case TEST_RESULT_FAIL:
+        return "fail";
+    case TEST_RESULT_TIMEOUT:
+        return "timeout";
+    case TEST_RESULT_ERROR:
+        return "error";
+    case TEST_RESULT_TYPE_NOT_SUPPORTED:
+        return "type_not_supported";
+    default:
+        return "unknown";
     }
 }
 
@@ -318,8 +325,8 @@ void scadable_diag_log_(scadable_diag_ctx_t *ctx, const char *fmt, ...) {
 
 scadable_diag_result_t scadable_diag_make_(scadable_test_status_t status, const char *fmt, ...) {
     scadable_diag_result_t r = {.status = status, .duration_ms = 0, .output_log = NULL};
-    r.message[0] = '\0';
-    r.details[0] = '\0';
+    r.message[0]             = '\0';
+    r.details[0]             = '\0';
     if (fmt) {
         va_list ap;
         va_start(ap, fmt);
@@ -346,7 +353,7 @@ scadable_register_diagnostic(const char *id, const char *type_str, scadable_diag
     // (so the codegen can emit them and the dashboard sees the diagnostic
     // exists) but stored with fn=NULL so the runner returns
     // TYPE_NOT_SUPPORTED on invocation.
-    bool supported = (strcmp(type_str, "function") == 0);
+    bool supported              = (strcmp(type_str, "function") == 0);
     D2.items[D2.count].id       = id;
     D2.items[D2.count].type_str = type_str;
     D2.items[D2.count].fn       = supported ? fn : NULL;
@@ -372,8 +379,11 @@ static int diag_find(const char *id) {
 // Publish a single result row using envelope v2 (run_id + triggered_by + type).
 // `id` is the diagnostic id. `type_str` is "function" / "api_call" / etc.
 // `triggered_by` is "manual" / "ota_verify" / "local_pre_ota" / "scheduled".
-static void diag_publish_v2(const char *id, const char *type_str, const char *run_id,
-                            const char *triggered_by, const scadable_diag_result_t *res,
+static void diag_publish_v2(const char *id,
+                            const char *type_str,
+                            const char *run_id,
+                            const char *triggered_by,
+                            const scadable_diag_result_t *res,
                             const char *log_buf) {
     if (!id || !type_str || !run_id || !triggered_by || !res) return;
 
@@ -395,9 +405,8 @@ static void diag_publish_v2(const char *id, const char *type_str, const char *ru
                      "\"id\":\"%s\",\"type\":\"%s\",\"status\":\"%s\","
                      "\"duration_ms\":%u,\"message\":\"%s\","
                      "\"details\":\"%s\",\"log\":\"%s\"}]}",
-                     diag_now_ms(), run_id, triggered_by, id, type_str,
-                     v3_status_str(res->status), (unsigned)res->duration_ms,
-                     esc_msg, esc_det, esc_log);
+                     diag_now_ms(), run_id, triggered_by, id, type_str, v3_status_str(res->status),
+                     (unsigned)res->duration_ms, esc_msg, esc_det, esc_log);
     if (n > 0 && (size_t)n < cap) {
         char topic[160];
         if (scd_topic_diag_result(topic, sizeof(topic)) > 0) {
@@ -419,11 +428,12 @@ scadable_err_t scadable_run_diagnostic(const char *id, const char *run_id) {
 #endif
         // Publish an ERROR envelope so the cloud sees the run completed
         // (rather than timing out a pending row).
-        scadable_diag_result_t r = scadable_diag_make_(TEST_RESULT_ERROR, "unknown diagnostic id: %s", id);
+        scadable_diag_result_t r =
+            scadable_diag_make_(TEST_RESULT_ERROR, "unknown diagnostic id: %s", id);
         diag_publish_v2(id, "unknown", run_id, "manual", &r, NULL);
         return SCADABLE_ERR_INVALID_ARG;
     }
-    const char *type_str = D2.items[idx].type_str;
+    const char *type_str  = D2.items[idx].type_str;
     scadable_diag_fn_t fn = D2.items[idx].fn;
 #ifdef ESP_PLATFORM
     if (D2.mtx) xSemaphoreGive(D2.mtx);
@@ -439,10 +449,10 @@ scadable_err_t scadable_run_diagnostic(const char *id, const char *run_id) {
         return SCADABLE_OK;
     }
 
-    scadable_diag_ctx_t ctx = {.id = id};
-    int64_t t0 = diag_now_ms();
+    scadable_diag_ctx_t ctx    = {.id = id};
+    int64_t t0                 = diag_now_ms();
     scadable_diag_result_t res = fn(&ctx);
-    res.duration_ms = (uint32_t)(diag_now_ms() - t0);
+    res.duration_ms            = (uint32_t)(diag_now_ms() - t0);
 
     diag_publish_v2(id, type_str, run_id, "manual", &res, ctx.log_buf);
     return SCADABLE_OK;
@@ -480,7 +490,8 @@ scadable_err_t scadable_run_all_diagnostics(const char *run_id) {
 // footprint small). Limitation: doesn't handle escapes inside the value.
 // That's fine for ULIDs and id strings (alphanumeric + underscore + dot).
 
-static bool diag_extract_str(const char *body, size_t len, const char *key, char *out, size_t out_sz) {
+static bool
+diag_extract_str(const char *body, size_t len, const char *key, char *out, size_t out_sz) {
     if (!body || !key || !out || out_sz == 0) return false;
     char needle[64];
     int nn = snprintf(needle, sizeof(needle), "\"%s\"", key);
@@ -493,11 +504,13 @@ static bool diag_extract_str(const char *body, size_t len, const char *key, char
         }
     }
     if (!p) return false;
-    while (*p == ' ' || *p == ':') p++;
+    while (*p == ' ' || *p == ':')
+        p++;
     if (*p != '"') return false;
     p++;
     size_t o = 0;
-    while (*p && *p != '"' && o + 1 < out_sz) out[o++] = *p++;
+    while (*p && *p != '"' && o + 1 < out_sz)
+        out[o++] = *p++;
     out[o] = '\0';
     return o > 0;
 }

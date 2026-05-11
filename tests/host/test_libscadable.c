@@ -258,7 +258,7 @@ static void test_diagnostics_v3(void) {
     // drop in host stub since there's no MQTT, but the lookup + invoke
     // must succeed and bump the call counter).
     int prev_calls = diag2_calls;
-    e = scadable_run_diagnostic("d_pass", "01HXYZRUNID0000");
+    e              = scadable_run_diagnostic("d_pass", "01HXYZRUNID0000");
     CHECK(e == SCADABLE_OK, "run_diagnostic on known id returns OK");
     CHECK(diag2_calls == prev_calls + 1, "run_diagnostic invokes the fn");
 
@@ -271,24 +271,25 @@ static void test_diagnostics_v3(void) {
     // OK from the host's perspective (the chip handled it); the result
     // status is TYPE_NOT_SUPPORTED but we can't observe the envelope here.
     e = scadable_run_diagnostic("d_future", "01HXYZRUNID0002");
-    CHECK(e == SCADABLE_OK, "run_diagnostic on future-type returns OK (publishes TYPE_NOT_SUPPORTED)");
+    CHECK(e == SCADABLE_OK,
+          "run_diagnostic on future-type returns OK (publishes TYPE_NOT_SUPPORTED)");
 
     // run_all_diagnostics: invokes every registered fn (the future-type one
     // doesn't bump diag2_calls because its fn is NULL).
     int before = diag2_calls;
-    e = scadable_run_all_diagnostics("01HXYZRUNID0003");
+    e          = scadable_run_all_diagnostics("01HXYZRUNID0003");
     CHECK(e == SCADABLE_OK, "run_all_diagnostics returns OK");
     CHECK(diag2_calls >= before + 2, "run_all invokes both function-typed diagnostics");
 
     // Cmd dispatch — JSON parsing.
     int dispatch_before = diag2_calls;
-    const char *body1 = "{\"run_id\":\"01HXYZRUNID0004\",\"id\":\"d_pass\"}";
+    const char *body1   = "{\"run_id\":\"01HXYZRUNID0004\",\"id\":\"d_pass\"}";
     scd_cmd_dispatch("diagnostic.run", body1, strlen(body1));
     CHECK(diag2_calls == dispatch_before + 1, "cmd dispatch (diagnostic.run) invokes fn");
 
     // Missing run_id field — must NOT invoke.
     int missing_before = diag2_calls;
-    const char *body2 = "{\"id\":\"d_pass\"}";
+    const char *body2  = "{\"id\":\"d_pass\"}";
     scd_cmd_dispatch("diagnostic.run", body2, strlen(body2));
     CHECK(diag2_calls == missing_before, "cmd dispatch with missing run_id is dropped");
 
@@ -298,7 +299,7 @@ static void test_diagnostics_v3(void) {
     CHECK(diag2_calls == unk_before, "unknown cmd type silently dropped");
 
     // diagnostic.run_all path.
-    int rall_before = diag2_calls;
+    int rall_before   = diag2_calls;
     const char *body3 = "{\"run_id\":\"01HXYZRUNID0005\"}";
     scd_cmd_dispatch("diagnostic.run_all", body3, strlen(body3));
     CHECK(diag2_calls > rall_before, "cmd dispatch (diagnostic.run_all) invokes fns");
